@@ -196,6 +196,7 @@ async function route() {
   if (NAV.find((n) => n.id === id && n.admin) && !isAdmin()) return go('dashboard');
   await refreshLowStock();
   try { S.license = await API.call('license.status'); } catch (e) { S.license = null; }
+  if (window.sika) { try { S.info = await window.sika.info(); } catch (e) { /* rien */ } }
   $('#modal-root').innerHTML = '';
   renderShell();
   renderLicenseBanner();

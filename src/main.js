@@ -46,7 +46,7 @@ app.whenReady().then(() => {
     catch (e) { return { ok: false, error: e instanceof AppError ? e.message : `Erreur interne : ${e.message}` }; }
   });
 
-  ipcMain.handle('app.info', () => ({ vendor: require('../package.json').vendor || {}, version: app.getVersion(), portable: !!PORTABLE_DIR, dataDir: DATA_DIR, engine: store.driver }));
+  ipcMain.handle('app.info', () => ({ vendor: mergeVendor(), version: app.getVersion(), portable: !!PORTABLE_DIR, dataDir: DATA_DIR, engine: store.driver }));
   ipcMain.handle('app.openDataDir', () => shell.openPath(DATA_DIR));
   ipcMain.handle('register.sync', () => register.sync());
 
@@ -96,12 +96,19 @@ app.whenReady().then(() => {
   createWindow();
   ensureDesktopShortcut();
   if (app.isPackaged || process.env.SIKAGEST_REGISTER === '1') {
-    register.init(() => store.call('settings.get'), { portable: !!PORTABLE_DIR, licenseFn: () => store.licenseStatus() });
+    register.init(() => store.call('settings.get'), { portable: !!PORTABLE_DIR, licenseFn: () => store.licenseStatus(), onVendor: (v) => store.setVendor(v) });
   }
 });
 
 // Au premier lancement, crée le raccourci sur le bureau de l'utilisateur s'il n'existe pas
 // (par ex. quand l'installation a été faite avec un autre compte administrateur).
+function mergeVendor() {
+  const base = { ...(require('../package.json').vendor || {}) };
+  const live = store ? store.getVendor() : {};
+  for (const [k, v] of Object.entries(live)) if (v) base[k === 'site_url' ? 'site' : k] = v;
+  return base;
+}
+
 function ensureDesktopShortcut() {
   if (process.platform !== 'win32' || !app.isPackaged || PORTABLE_DIR) return;
   try {

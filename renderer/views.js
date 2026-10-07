@@ -771,7 +771,7 @@ VIEWS.license = async (c) => {
     </div></div>
     <div class="card"><div class="card-h"><h3>${L.state === 'active' ? 'Renouveler ou changer de formule' : 'Acheter une licence'}</h3></div><div class="card-b">
       <ol class="steps"><li>Contactez votre fournisseur${v.name ? ` <b>${esc(v.name)}</b>` : ''} et donnez-lui votre <b>code d'installation</b>.</li>
-        <li>Payez la formule choisie (Mobile Money, Wave, espèces…).</li><li>Vous recevez une <b>clé d'activation</b> : collez-la ci-dessous.</li></ol>
+        <li>Payez la formule choisie (Mobile Money, Wave, espèces…).${[['Wave', v.wave], ['Orange Money', v.orange_money], ['MTN MoMo', v.mtn_momo]].filter((x) => x[1]).map((x) => `<br><b>${x[0]} : ${esc(x[1])}</b>`).join('')}</li><li>Vous recevez une <b>clé d'activation</b> : collez-la ci-dessous.</li></ol>
       <div class="toolbar" style="margin:14px 0 0">${wa ? `<a class="btn primary" href="${wa}" target="_blank" rel="noopener">${icon('whatsapp')} Contacter par WhatsApp</a>` : ''}${v.site ? `<a class="btn" href="${esc(v.site)}" target="_blank" rel="noopener">Voir les tarifs</a>` : ''}</div>
     </div></div></div>
     <div class="card"><div class="card-h"><h3>Activer avec une clé</h3></div><div class="card-b">

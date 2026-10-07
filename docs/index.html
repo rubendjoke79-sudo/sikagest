@@ -73,6 +73,7 @@ h2{font-size:clamp(28px,3.6vw,40px);line-height:1.12;letter-spacing:-.8px;margin
 .price .per{color:var(--ink3);font-size:14px;margin-bottom:16px}
 .price ul{margin:0 0 22px;padding:0;list-style:none;flex:1}.price li{padding:6px 0;color:var(--ink2);font-size:15px;border-bottom:1px dashed var(--line)}
 .price .btn{width:100%}
+.paybox{background:var(--surface);border:1px dashed var(--brand);border-radius:12px;padding:16px 20px;margin-top:22px;text-align:center;line-height:1.8}.paybox .pm{display:inline-block;margin:0 10px;white-space:nowrap}
 .note{color:var(--ink3);font-size:14px;text-align:center;margin-top:20px}
 /* faq */
 details{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px 20px;margin-bottom:10px}
@@ -164,6 +165,7 @@ footer a{color:#d8d0c4}
     <div class="price"><h3>À vie</h3><div class="amount" data-price="vie"></div><div class="per">paiement unique</div>
       <ul><li>Payez une seule fois</li><li>Licence sans date de fin</li><li>Mises à jour incluses</li></ul><a class="btn line" data-wa="Bonjour, je souhaite la licence À vie de SikaGest." data-fallback="#telecharger">Choisir</a></div>
   </div>
+  <div class="paybox" id="paybox" hidden><b>Payer votre licence :</b> <span id="paylist"></span><br><span style="color:var(--ink3)">Après le paiement, envoyez la capture et votre code d'installation (menu Licence) sur WhatsApp : vous recevez votre clé d'activation.</span></div>
   <p class="note">Une licence = un ordinateur. Plusieurs caisses ? Contactez-nous pour un tarif adapté.</p>
 </div></section>
 
@@ -194,20 +196,39 @@ footer a{color:#d8d0c4}
 (function () {
   var C = window.SIKA || {};
   var nf = new Intl.NumberFormat('fr-FR');
-  var num = String(C.whatsapp || '').replace(/[^0-9]/g, '');
-  document.querySelectorAll('[data-wa]').forEach(function (a) {
-    if (num) { a.href = 'https://wa.me/' + num + '?text=' + encodeURIComponent(a.getAttribute('data-wa')); a.target = '_blank'; a.rel = 'noopener'; a.hidden = false; }
-    else if (a.dataset.fallback) { a.href = a.dataset.fallback; a.hidden = false; }
-  });
-  document.querySelectorAll('[data-price]').forEach(function (el) {
-    var v = (C.prices || {})[el.getAttribute('data-price')];
-    el.textContent = v ? nf.format(v) + ' FCFA' : 'Sur demande';
-    if (!v) el.style.fontSize = '26px';
-  });
-  document.querySelectorAll('.trial-days').forEach(function (el) { el.textContent = C.trialDays || 14; });
-  if (C.company) document.querySelectorAll('.co').forEach(function (el) { el.textContent = C.company; });
-  if (C.city) document.querySelectorAll('.ci').forEach(function (el) { el.textContent = C.city; });
+  var SUPA = 'https://amyeajnxdeeynxdveahu.supabase.co', KEY = 'sb_publishable_ruU1tjtP1wTh7IpIaA60FA_UjKPK7IQ';
+  function apply(C) {
+    var num = String(C.whatsapp || '').replace(/[^0-9]/g, '');
+    if (num.length === 10) num = '225' + num;
+    document.querySelectorAll('[data-wa]').forEach(function (a) {
+      if (num) { a.href = 'https://wa.me/' + num + '?text=' + encodeURIComponent(a.getAttribute('data-wa')); a.target = '_blank'; a.rel = 'noopener'; a.hidden = false; }
+      else if (a.dataset.fallback) { a.href = a.dataset.fallback; a.hidden = false; }
+    });
+    var P = C.prices || {};
+    document.querySelectorAll('[data-price]').forEach(function (el) {
+      var v = P[el.getAttribute('data-price')];
+      el.textContent = v ? nf.format(v) + ' FCFA' : 'Sur demande';
+      el.style.fontSize = v ? '' : '26px';
+    });
+    var pays = [['Wave', C.wave], ['Orange Money', C.orange_money], ['MTN MoMo', C.mtn_momo]].filter(function (x) { return x[1]; });
+    var box = document.getElementById('paybox');
+    if (pays.length) { document.getElementById('paylist').innerHTML = pays.map(function (x) { return '<span class="pm">' + x[0] + ' : <b>' + String(x[1]).replace(/[<>&"]/g, '') + '</b></span>'; }).join(' '); box.hidden = false; }
+    else box.hidden = true;
+    document.querySelectorAll('.trial-days').forEach(function (el) { el.textContent = C.trialDays || 14; });
+    if (C.company) document.querySelectorAll('.co').forEach(function (el) { el.textContent = C.company; });
+    if (C.city) document.querySelectorAll('.ci').forEach(function (el) { el.textContent = C.city; });
+  }
+  apply(C);
   document.getElementById('year').textContent = new Date().getFullYear();
+  // Réglages modifiables depuis l'espace administrateur (page « Mon site »)
+  fetch(SUPA + '/rest/v1/site_settings?id=eq.1&select=whatsapp,wave,orange_money,mtn_momo,email,price_mensuel,price_annuel,price_vie', { headers: { apikey: KEY } })
+    .then(function (r) { return r.ok ? r.json() : []; })
+    .then(function (rows) {
+      var r = rows && rows[0]; if (!r) return;
+      var M = Object.assign({}, C, { whatsapp: r.whatsapp || C.whatsapp, wave: r.wave, orange_money: r.orange_money, mtn_momo: r.mtn_momo, email: r.email || C.email,
+        prices: { mensuel: r.price_mensuel, annuel: r.price_annuel, vie: r.price_vie } });
+      apply(M);
+    }).catch(function () {});
 })();
 </script>
 </body>

@@ -74,6 +74,12 @@ var parts = [];
 if (C.whatsapp) parts.push('WhatsApp +' + String(C.whatsapp).replace(/[^0-9]/g, ''));
 if (C.email) parts.push(C.email);
 if (parts.length) document.querySelectorAll('.contact').forEach(function (e) { e.textContent = parts.join(' · '); });
+fetch('https://amyeajnxdeeynxdveahu.supabase.co/rest/v1/site_settings?id=eq.1&select=whatsapp,email', { headers: { apikey: 'sb_publishable_ruU1tjtP1wTh7IpIaA60FA_UjKPK7IQ' } })
+  .then(function (r) { return r.ok ? r.json() : []; }).then(function (rows) {
+    var r = rows && rows[0]; if (!r) return; var p = [];
+    if (r.whatsapp) p.push('WhatsApp ' + r.whatsapp); if (r.email) p.push(r.email);
+    if (p.length) document.querySelectorAll('.contact').forEach(function (e) { e.textContent = p.join(' · '); });
+  }).catch(function () {});
 </script>
 </body>
 </html>

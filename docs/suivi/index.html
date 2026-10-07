@@ -44,7 +44,7 @@ dialog::backdrop{background:rgba(0,0,0,.45)}dialog .card{margin:0;border:0}
 </head>
 <body>
 <div class="top"><div class="mark">S</div><div><b>SikaGest Suivi</b><br><span>Vos clients, leurs licences et leurs installations, en direct</span></div><div class="sp"></div></div>
-<div class="wrap"><div id="view"></div></div>
+<div class="wrap"><div class="tabs" id="tabs" hidden><button data-t="live">Clients</button><button data-t="site">Mon site</button><button data-t="account">Mon compte</button><a class="btn sm" id="sitelink" target="_blank" rel="noopener" style="margin:0 0 6px auto">Voir mon site ↗</a></div><div id="view"></div></div>
 <script>
 'use strict';
 const $ = (s, r = document) => r.querySelector(s);
@@ -201,7 +201,7 @@ function viewLogin() {
   if (liveTimer) { clearInterval(liveTimer); liveTimer = null; }
   $('#view').innerHTML = `<div class="card" style="max-width:460px"><h2>Connexion au serveur</h2>
     <p class="hint">Pour voir en direct les installations de vos clients. Utilisez l'e-mail et le mot de passe du serveur qui vous ont été donnés.</p>
-    <label>E-mail</label><input class="input" id="le" type="email" value="${esc((getAuth() || {}).email || 'rubendjoke79@gmail.com')}">
+    <label>E-mail</label><input class="input" id="le" type="email" value="${esc((getAuth() || {}).email || '')}" placeholder="votre e-mail de connexion">
     <label style="margin-top:10px">Mot de passe du serveur</label><input class="input" id="lp" type="password">
     <div class="row" style="margin-top:14px"><button class="btn primary" id="lgo">Se connecter</button></div><div id="lmsg2"></div></div>`;
   const msg = (t, ok) => { $('#lmsg2').innerHTML = `<div class="msg ${ok ? 'ok' : 'bad'}">${t}</div>`; };
@@ -232,8 +232,92 @@ function changeServerPassword() {
   });
 }
 
-function render() { viewLive(); }
+// ---------- Onglets de la page en ligne : Clients / Mon site / Mon compte ----------
+let TAB = 'live';
+let SITE = null;
+const SITE_URL_DEFAULT = new URL('../', location.href).href;
+async function loadSite() {
+  const r = await safeFetch(`${SERVER.url}/rest/v1/site_settings?id=eq.1&select=*`, { headers: { apikey: SERVER.key } });
+  SITE = (await r.json())[0] || {};
+  const link = $('#sitelink'); if (link) link.href = SITE.site_url || SITE_URL_DEFAULT;
+  return SITE;
+}
+async function render() {
+  const logged = !!(await token());
+  $('#tabs').hidden = !logged;
+  if (!logged) { $('#tabs').hidden = true; return viewLive(); }
+  document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.t === TAB));
+  if (liveTimer && TAB !== 'live') { clearInterval(liveTimer); liveTimer = null; }
+  if (!SITE) loadSite().catch(() => {});
+  ({ live: viewLive, site: viewSite, account: viewAccount })[TAB]();
+}
+document.querySelectorAll('#tabs button').forEach((b) => b.addEventListener('click', () => { TAB = b.dataset.t; render(); }));
+// après connexion, viewLogin appelle viewLive : on réaffiche les onglets
+const _viewLive = viewLive;
+viewLive = async function () { if (await token()) { $('#tabs').hidden = false; document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.t === 'live')); if (!SITE) loadSite().catch(() => {}); } return _viewLive(); };
+
+async function viewSite() {
+  $('#view').innerHTML = '<div class="card"><span class="hint">Chargement…</span></div>';
+  try { await loadSite(); } catch (e) { $('#view').innerHTML = `<div class="card"><div class="msg bad">${esc(e.message)}</div></div>`; return; }
+  const v = (k) => esc(SITE[k] ?? '');
+  $('#view').innerHTML = `<div class="card"><h2>Mon site et mes numéros</h2>
+    <p class="hint">Ces informations s'affichent sur votre site et dans le logiciel SikaGest de vos clients (bouton WhatsApp, numéros de paiement). Les changements sont visibles en quelques secondes, sans nouvelle version.</p>
+    <div class="grid">
+      <div><label>Numéro WhatsApp (vente et assistance)</label><input class="input" id="s-whatsapp" value="${v('whatsapp')}" placeholder="+225 07 00 00 00 00"></div>
+      <div><label>E-mail de contact (facultatif)</label><input class="input" id="s-email" value="${v('email')}" placeholder="contact@…"></div>
+      <div><label>Numéro Wave</label><input class="input" id="s-wave" value="${v('wave')}" placeholder="+225 07 00 00 00 00"></div>
+      <div><label>Numéro Orange Money</label><input class="input" id="s-orange_money" value="${v('orange_money')}"></div>
+      <div><label>Numéro MTN MoMo</label><input class="input" id="s-mtn_momo" value="${v('mtn_momo')}"></div>
+      <div></div>
+      <div><label>Prix mensuel (FCFA)</label><input class="input" type="number" min="0" id="s-price_mensuel" value="${v('price_mensuel')}" placeholder="vide = « Sur demande »"></div>
+      <div><label>Prix annuel (FCFA)</label><input class="input" type="number" min="0" id="s-price_annuel" value="${v('price_annuel')}" placeholder="vide = « Sur demande »"></div>
+      <div><label>Prix à vie (FCFA)</label><input class="input" type="number" min="0" id="s-price_vie" value="${v('price_vie')}" placeholder="vide = « Sur demande »"></div>
+      <div><label>Adresse de votre site</label><input class="input" id="s-site_url" value="${v('site_url')}" placeholder="${esc(SITE_URL_DEFAULT)}"></div>
+    </div>
+    <div class="row" style="margin-top:16px"><button class="btn primary" id="s-save">Enregistrer</button><a class="btn" target="_blank" rel="noopener" href="${esc(SITE.site_url || SITE_URL_DEFAULT)}">Voir mon site ↗</a></div><div id="s-msg"></div>
+    <p class="hint" style="margin:14px 0 0">Dernière modification : ${SITE.updated_at ? new Date(SITE.updated_at).toLocaleString('fr-FR') : '—'}</p></div>`;
+  $('#s-save').addEventListener('click', async () => {
+    const txt = (k) => $(`#s-${k}`).value.trim();
+    const int = (k) => { const x = $(`#s-${k}`).value.trim(); return x === '' ? null : Math.max(0, Math.round(Number(x))); };
+    const body = { whatsapp: txt('whatsapp'), email: txt('email'), wave: txt('wave'), orange_money: txt('orange_money'), mtn_momo: txt('mtn_momo'),
+      price_mensuel: int('price_mensuel'), price_annuel: int('price_annuel'), price_vie: int('price_vie'), site_url: txt('site_url'), updated_at: new Date().toISOString() };
+    if (body.whatsapp && body.whatsapp.replace(/[^0-9]/g, '').length < 8) { $('#s-msg').innerHTML = '<div class="msg bad">Numéro WhatsApp trop court.</div>'; return; }
+    try {
+      await api('site_settings?id=eq.1', { method: 'PATCH', body: JSON.stringify(body), headers: { Prefer: 'return=minimal' } });
+      SITE = null; await loadSite();
+      $('#s-msg').innerHTML = '<div class="msg ok">Enregistré. Votre site et le logiciel de vos clients afficheront ces informations.</div>';
+    } catch (e) { $('#s-msg').innerHTML = `<div class="msg bad">${esc(e.message === 'auth' ? 'Session expirée : reconnectez-vous.' : e.message)}</div>`; }
+  });
+}
+
+function viewAccount() {
+  const a = getAuth() || {};
+  $('#view').innerHTML = `<div class="grid" style="align-items:start">
+    <div class="card"><h2>E-mail de connexion</h2><p class="hint">Actuel : <b>${esc(a.email || '')}</b></p>
+      <label>Nouvel e-mail</label><input class="input" type="email" id="a-email" placeholder="ex. : admin.sikagest@gmail.com">
+      <div class="row" style="margin-top:12px"><button class="btn primary" id="a-email-go">Changer l'e-mail</button></div><div id="a-email-msg"></div>
+      <p class="hint" style="margin:12px 0 0">Un lien de confirmation est envoyé à l'ancienne et à la nouvelle adresse. Cliquez sur les deux liens : le changement est fait après le second clic.</p></div>
+    <div class="card"><h2>Mot de passe</h2><p class="hint">8 caractères minimum.</p>
+      <label>Nouveau mot de passe</label><input class="input" type="password" id="a-p1">
+      <label style="margin-top:10px">Confirmer</label><input class="input" type="password" id="a-p2">
+      <div class="row" style="margin-top:12px"><button class="btn primary" id="a-pw-go">Changer le mot de passe</button></div><div id="a-pw-msg"></div></div></div>`;
+  $('#a-email-go').addEventListener('click', async () => {
+    const m = (t, ok) => { $('#a-email-msg').innerHTML = `<div class="msg ${ok ? 'ok' : 'bad'}">${t}</div>`; };
+    const email = $('#a-email').value.trim();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return m('Adresse e-mail invalide.');
+    try { await authCall('user', { email }, 'PUT', await token()); m(`Liens de confirmation envoyés à ${esc(a.email)} et à ${esc(email)}. Cliquez sur les deux, puis reconnectez-vous avec la nouvelle adresse.`, true); }
+    catch (e) { m(esc(e.message)); }
+  });
+  $('#a-pw-go').addEventListener('click', async () => {
+    const m = (t, ok) => { $('#a-pw-msg').innerHTML = `<div class="msg ${ok ? 'ok' : 'bad'}">${t}</div>`; };
+    if ($('#a-p1').value.length < 8) return m('8 caractères minimum.');
+    if ($('#a-p1').value !== $('#a-p2').value) return m('Les deux mots de passe sont différents.');
+    try { await authCall('user', { password: $('#a-p1').value }, 'PUT', await token()); m('Mot de passe changé.', true); $('#a-p1').value = $('#a-p2').value = ''; }
+    catch (e) { m(esc(e.message)); }
+  });
+}
 render();
+
 </script>
 </body>
 </html>

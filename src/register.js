@@ -8,6 +8,7 @@ let getSettings = null;
 let portable = false;
 let timer = null;
 let getLicense = null;
+let onVendor = null;
 
 function config() {
   const pkg = require('../package.json');
@@ -41,16 +42,29 @@ async function sync() {
         ...licenseFields(),
       }),
     });
+    await fetchVendor(url, key);
     return res.ok;
   } catch (e) {
     return false; // pas d'Internet : on réessaiera plus tard
   }
 }
 
+// Coordonnées du fournisseur (WhatsApp, numéros de paiement), modifiables depuis l'espace administrateur
+async function fetchVendor(url, key) {
+  if (!onVendor) return;
+  try {
+    const r = await net.fetch(`${url}/rest/v1/site_settings?id=eq.1&select=whatsapp,wave,orange_money,mtn_momo,email,site_url`, { headers: { apikey: key } });
+    if (!r.ok) return;
+    const row = (await r.json())[0];
+    if (row) onVendor(row);
+  } catch (e) { /* hors ligne */ }
+}
+
 function init(settingsFn, opts = {}) {
   getSettings = settingsFn;
   portable = !!opts.portable;
   getLicense = opts.licenseFn || null;
+  onVendor = opts.onVendor || null;
   setTimeout(sync, 6000);
   if (timer) clearInterval(timer);
   timer = setInterval(sync, 20 * 60 * 1000); // signale sa présence toutes les 20 minutes

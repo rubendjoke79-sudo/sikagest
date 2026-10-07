@@ -277,6 +277,7 @@ function createStore(file, opts = {}) {
       for (const r of q.all('SELECT key,value FROM settings')) if (r.key !== 'recovery_pending') out[r.key] = r.value;
       out.install_code = recovery.formatInstallId(out.install_id);
       delete out.license_key;
+      delete out.vendor_json;
       return out;
     },
     'settings.save'(values) {
@@ -681,7 +682,9 @@ function createStore(file, opts = {}) {
   }
   function close() { try { db.close(); } catch (e) { /* déjà fermé */ } }
   function checkpoint() { try { db.exec('PRAGMA wal_checkpoint(TRUNCATE)'); } catch (e) { /* rien */ } }
-  return { call, close, checkpoint, file, AppError, driver: db.__driver || 'node:sqlite', licenseStatus };
+  function setVendor(v) { setSetting('vendor_json', JSON.stringify(v || {})); }
+  function getVendor() { try { return JSON.parse(setting('vendor_json') || '{}'); } catch (e) { return {}; } }
+  return { call, close, checkpoint, file, AppError, driver: db.__driver || 'node:sqlite', licenseStatus, setVendor, getVendor };
 }
 
 module.exports = { createStore, AppError };

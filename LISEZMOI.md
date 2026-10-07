@@ -102,3 +102,7 @@ Dans **SikaGest-Admin.html → Installations en direct**, vous voyez tous vos cl
 - **Prix, numéro WhatsApp, e-mail** : modifiez seulement `docs/config.js`. Pour le numéro WhatsApp affiché dans le logiciel, modifiez aussi `vendor.whatsapp` dans `package.json`, puis publiez une nouvelle version.
 - Conditions de vente et données personnelles : `docs/conditions.html`. C'est un modèle à compléter (champs entre crochets) et à faire relire par un juriste.
 - Le bouton « Télécharger » pointe toujours vers la dernière version publiée.
+
+## Modifier vos numéros et vos prix (sans nouvelle version)
+
+Page en ligne → onglet **Mon site** : numéro WhatsApp, Wave, Orange Money, MTN MoMo, e-mail de contact, prix et adresse du site. Les changements apparaissent tout de suite sur le site, et dans le logiciel de vos clients dès qu'ils ont Internet. L'onglet **Mon compte** sert à changer l'e-mail et le mot de passe de connexion.
