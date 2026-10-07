@@ -706,6 +706,10 @@ VIEWS.settings = async (c) => {
         <p style="color:var(--ink-2)"><b>Important :</b> ces copies restent sur cet ordinateur. Faites aussi une copie <b>chaque semaine</b> sur une clé USB, gardée hors de la boutique.</p>
         <div class="toolbar" style="margin:0"><button class="btn primary" id="b-exp">Créer une sauvegarde…</button>${isAdmin() ? '<button class="btn" id="b-imp">Restaurer…</button>' : ''}<button class="btn ghost" id="b-auto">Voir les copies automatiques</button><button class="btn ghost" id="b-dir">Ouvrir le dossier des données</button></div>
         <p style="color:var(--ink-3);font-size:12.5px;margin-bottom:0" id="b-path"></p></div></div>
+      <div class="card"><div class="card-h"><h3>Sauvegarde en ligne</h3></div><div class="card-b">
+        <p style="margin-top:0;color:var(--ink-2)">Vos données sont chiffrées sur cet ordinateur puis envoyées en ligne quand Internet est disponible. Si l'ordinateur est perdu, volé ou en panne, réinstallez SikaGest et choisissez « Récupérer mes données » : vous retrouvez tout avec le téléphone de l'entreprise et votre mot de passe. Personne d'autre ne peut lire vos données, pas même votre fournisseur.</p>
+        <div id="c-status" class="bk-status"></div>
+        <div class="toolbar" style="margin:0" id="c-actions"></div></div></div>
       <div class="card"><div class="card-h"><h3>Mises à jour</h3></div><div class="card-b">
         <p style="margin-top:0">Version installée : <b>${esc(S.info.version)}</b>${S.info.portable ? ' (portable)' : ''}<br>
         Identifiant d'installation : <b style="font-family:ui-monospace,Consolas,monospace">${esc(s.install_code || '')}</b></p>
@@ -726,6 +730,7 @@ VIEWS.settings = async (c) => {
     <div class="bk-row"><span>Copies gardées sur ce PC</span><b>${b.count}${b.oldest ? ` (depuis le ${new Date(b.oldest).toLocaleDateString('fr-FR')})` : ''}</b></div>
     <div class="bk-row"><span>Dernière copie sur clé USB</span><b class="${b.daysSinceExternal >= 7 ? 'warn' : 'ok'}">${esc(backupAgo(b.lastExternal))}</b></div>`;
   $('#b-exp').addEventListener('click', exportBackup);
+  renderCloudCard();
   $('#b-auto').addEventListener('click', () => desktop ? window.sika.openBackupDir() : toast('Disponible dans le logiciel installé', 'err'));
   if ($('#b-imp')) $('#b-imp').addEventListener('click', async () => { if (!desktop) return toast('Disponible dans le logiciel installé', 'err'); const r = await window.sika.backupImport(); if (r.ok) { toast('Données restaurées. Reconnectez-vous.', 'ok'); S.user = null; boot(); } else if (r.error) toast(r.error, 'err'); });
   $('#b-dir').addEventListener('click', () => desktop ? window.sika.openDataDir() : toast('Disponible dans le logiciel installé', 'err'));
@@ -743,6 +748,35 @@ VIEWS.settings = async (c) => {
     window.sika.onUpdate(show); setTimeout(show, 400);
   });
 };
+
+// ---------- Sauvegarde en ligne (Paramètres) ----------
+function renderCloudCard() {
+  const box = $('#c-status'), act = $('#c-actions');
+  if (!box) return;
+  const c = S.cloud;
+  if (!window.sika || !c) { box.innerHTML = '<div class="bk-row"><span>Sauvegarde en ligne</span><b>disponible dans le logiciel installé</b></div>'; act.innerHTML = ''; return; }
+  const row = (k, v, cls = '') => `<div class="bk-row"><span>${k}</span><b class="${cls}">${v}</b></div>`;
+  let html = '';
+  if (!c.enabled) html = row('État', 'activation à la prochaine connexion d\'un administrateur', 'warn');
+  else if (c.error) html = row('État', esc(c.error.message), c.error.code === 'no_phone' ? 'warn' : 'bad');
+  else if (!c.active) html = row('État', c.offlineSince ? 'en attente d\'Internet' : 'activation en cours…', 'warn');
+  else html = row('État', 'active ✔', 'ok');
+  if (c.active) {
+    html += row('Compte en ligne', esc(c.phone || ''));
+    html += row('Dernier envoi', c.lastUpload ? esc(backupAgo(c.lastUpload)) : 'pas encore', c.lastUpload && (Date.now() - new Date(c.lastUpload)) < 3 * 864e5 ? 'ok' : 'warn');
+    if (c.offlineSince) html += row('Internet', `indisponible depuis ${esc(backupAgo(c.offlineSince))}`, 'warn');
+  }
+  box.innerHTML = html;
+  act.innerHTML = `${c.active ? '<button class="btn" id="c-sync">Envoyer maintenant</button>' : ''}${isAdmin() ? '<button class="btn ghost" id="c-restore">Récupérer mes données en ligne…</button>' : ''}`;
+  if ($('#c-sync')) $('#c-sync').addEventListener('click', async () => {
+    const b = $('#c-sync'); b.disabled = true; b.textContent = 'Envoi en cours…';
+    const r = await window.sika.cloudSync();
+    S.cloud = r.ok ? r.data : await window.sika.cloudStatus();
+    if (r.ok && !S.cloud.error && !S.cloud.offlineSince) toast('Sauvegarde envoyée en ligne', 'ok'); else toast((S.cloud.error && S.cloud.error.message) || 'Pas de connexion Internet. Nouvel essai automatique plus tard.', 'err');
+    renderCloudCard();
+  });
+  if ($('#c-restore')) $('#c-restore').addEventListener('click', () => cloudRestoreModal({ replacing: true, phone: S.settings.company_phone || '' }));
+}
 
 // ---------- Export CSV (ouvrable dans Excel) ----------
 function exportCsv(name, head, rows) {

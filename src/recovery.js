@@ -80,4 +80,4 @@ function parseLicense(key, installIdHex) {
   };
 }
 
-module.exports = { makeRequest, verifyUnlock, formatInstallId, b32encode, b32decode, signedMessage, parseLicense, licenseMessage, PLANS, EPOCH, DAY, LIFETIME };
+module.exports = { PUBLIC_KEY, makeRequest, verifyUnlock, formatInstallId, b32encode, b32decode, signedMessage, parseLicense, licenseMessage, PLANS, EPOCH, DAY, LIFETIME };

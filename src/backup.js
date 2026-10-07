@@ -135,7 +135,13 @@ function createBackups({ dataDir, getStore, nativeBinding, intervalHours = 3, no
     };
   }
 
-  return { dir, start, run, maybeRun, onClose, exportTo, status };
+  // Copie automatique la plus récente (utilisée pour la sauvegarde en ligne)
+  function latestFile() {
+    const f = listFiles().map((name) => ({ name, d: parseName(name) })).sort((a, b) => b.d - a.d)[0];
+    return f ? path.join(dir, f.name) : null;
+  }
+
+  return { dir, start, run, maybeRun, onClose, exportTo, status, latestFile };
 }
 
 module.exports = { createBackups, planRetention, parseName };

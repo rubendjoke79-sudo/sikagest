@@ -1,10 +1,11 @@
 // SikaGest — processus principal Electron
 'use strict';
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, net } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { createStore, checkFile, AppError } = require('./db');
 const { createBackups } = require('./backup');
+const { createCloud } = require('./cloud');
 const updater = require('./updater');
 const register = require('./register');
 
@@ -22,6 +23,7 @@ const DB_FILE = path.join(DATA_DIR, 'sikagest.db');
 let store;
 let win;
 let backups;
+let cloud;
 
 if (!app.requestSingleInstanceLock()) app.quit();
 app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
@@ -39,12 +41,50 @@ function createWindow() {
   updater.init(win, { portable: !!PORTABLE_DIR });
 }
 
+// Ouvre la base ; prévient la sauvegarde en ligne quand un administrateur saisit son mot de passe
+const openStore = () => createStore(DB_FILE, { ...storeOpts, onAdminPassword: (u, p) => cloud && cloud.onAdminPassword(u, p) });
+
+// Remplace les données par un fichier déjà vérifié. Revient en arrière si quelque chose se passe mal.
+function replaceDatabase(candidate) {
+  backups.run('avant-restauration');
+  store.checkpoint();
+  const previous = DB_FILE + '.avant-restauration';
+  fs.copyFileSync(DB_FILE, previous);
+  store.close();
+  for (const ext of ['-wal', '-shm']) { try { fs.unlinkSync(DB_FILE + ext); } catch (e) { /* absent */ } }
+  try {
+    fs.copyFileSync(candidate, DB_FILE);
+    store = openStore();
+    store.call('settings.get');
+    return { ok: true };
+  } catch (e) {
+    try { store && store.close(); } catch (x) { /* rien */ }
+    for (const ext of ['-wal', '-shm']) { try { fs.unlinkSync(DB_FILE + ext); } catch (x) { /* absent */ } }
+    fs.copyFileSync(previous, DB_FILE);
+    store = openStore();
+    return { ok: false, error: `La restauration a échoué (${e.message}). Vos données précédentes ont été remises en place.` };
+  } finally {
+    try { fs.unlinkSync(candidate); } catch (e) { /* rien */ }
+  }
+}
+
+// Vérifie un fichier récupéré (clé USB ou en ligne) puis remplace les données
+function restoreFromFile(file) {
+  const chk = checkFile(file, storeOpts.nativeBinding);
+  if (!chk.ok) { try { fs.unlinkSync(file); } catch (e) { /* rien */ } return { ok: false, error: `Restauration impossible : ${chk.error}. Vos données actuelles n'ont pas été modifiées.` }; }
+  return { ok: true, chk };
+}
+
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
-  store = createStore(DB_FILE, storeOpts);
+  store = openStore();
 
   ipcMain.handle('api', (_e, method, args) => {
-    try { return { ok: true, data: store.call(method, args) }; }
+    try {
+      const data = store.call(method, args);
+      if (method === 'settings.save' && cloud) cloud.sync().catch(() => {});
+      return { ok: true, data };
+    }
     catch (e) { return { ok: false, error: e instanceof AppError ? e.message : `Erreur interne : ${e.message}` }; }
   });
 
@@ -75,41 +115,53 @@ app.whenReady().then(() => {
     // 1. Vérifier le fichier choisi (sur une copie, pour ne jamais toucher l'original)
     const candidate = DB_FILE + '.a-restaurer';
     try { fs.copyFileSync(res.filePaths[0], candidate); } catch (e) { return { ok: false, error: `Fichier illisible : ${e.message}` }; }
-    const chk = checkFile(candidate, storeOpts.nativeBinding);
-    if (!chk.ok) { try { fs.unlinkSync(candidate); } catch (e) { /* rien */ } return { ok: false, error: `Restauration impossible : ${chk.error}. Vos données actuelles n'ont pas été modifiées.` }; }
+    const v = restoreFromFile(candidate);
+    if (!v.ok) return v;
     const confirm = await dialog.showMessageBox(win, {
       type: 'warning', buttons: ['Annuler', 'Restaurer'], defaultId: 0, cancelId: 0, title: 'Restaurer',
       message: 'Toutes les données actuelles seront remplacées par celles de la sauvegarde. Continuer ?',
-      detail: `Sauvegarde vérifiée : ${chk.sales} vente(s), ${chk.products} produit(s).\nUne copie de vos données actuelles est gardée dans les sauvegardes automatiques.`,
+      detail: `Sauvegarde vérifiée : ${v.chk.sales} vente(s), ${v.chk.products} produit(s).\nUne copie de vos données actuelles est gardée dans les sauvegardes automatiques.`,
     });
     if (confirm.response !== 1) { try { fs.unlinkSync(candidate); } catch (e) { /* rien */ } return { ok: false }; }
-    // 2. Garder une copie des données actuelles
-    backups.run('avant-restauration');
-    store.checkpoint();
-    const previous = DB_FILE + '.avant-restauration';
-    fs.copyFileSync(DB_FILE, previous);
-    // 3. Remplacer, puis revenir en arrière si la base ne s'ouvre pas
-    store.close();
-    for (const ext of ['-wal', '-shm']) { try { fs.unlinkSync(DB_FILE + ext); } catch (e) { /* absent */ } }
-    try {
-      fs.copyFileSync(candidate, DB_FILE);
-      store = createStore(DB_FILE, storeOpts);
-      store.call('settings.get');
-    } catch (e) {
-      try { store && store.close(); } catch (x) { /* rien */ }
-      for (const ext of ['-wal', '-shm']) { try { fs.unlinkSync(DB_FILE + ext); } catch (x) { /* absent */ } }
-      fs.copyFileSync(previous, DB_FILE);
-      store = createStore(DB_FILE, storeOpts);
-      return { ok: false, error: `La restauration a échoué (${e.message}). Vos données précédentes ont été remises en place.` };
-    } finally {
-      try { fs.unlinkSync(candidate); } catch (e) { /* rien */ }
-    }
-    return { ok: true };
+    // 2. Remplacer (une copie des données actuelles est gardée, retour en arrière si échec)
+    return replaceDatabase(candidate);
   });
 
   // Sauvegardes automatiques : au démarrage, toutes les 3 heures et à la fermeture
   backups = createBackups({ dataDir: DATA_DIR, getStore: () => store, nativeBinding: storeOpts.nativeBinding });
   try { backups.start(); } catch (e) { /* non bloquant : l'état signale l'échec */ }
+
+  // Sauvegarde en ligne chiffrée (dès qu'Internet est disponible)
+  cloud = createCloud({
+    getStore: () => store, fetchImpl: (...a) => net.fetch(...a), workDir: DATA_DIR, latestSnapshot: () => backups.latestFile(),
+    serverConfig: () => ({ ...(require('../package.json').server || {}), ...(process.env.SIKAGEST_SERVER_URL ? { url: process.env.SIKAGEST_SERVER_URL } : {}) }),
+  });
+  cloud.start();
+  const cloudCall = (fn) => async (_e, args) => {
+    try { return { ok: true, data: await fn(args || {}) }; }
+    catch (e) { return { ok: false, error: e.message || String(e) }; }
+  };
+  ipcMain.handle('cloud.status', () => cloud.status());
+  ipcMain.handle('cloud.sync', cloudCall(() => cloud.sync({ forceUpload: true })));
+  // Récupération avec identifiant + mot de passe
+  ipcMain.handle('cloud.restore', cloudCall(async (a) => {
+    const r = await cloud.restore(a);
+    const v = restoreFromFile(r.file);
+    if (!v.ok) throw new Error(v.error);
+    const done = replaceDatabase(r.file);
+    if (!done.ok) throw new Error(done.error);
+    return { shop: r.shop, backupAt: r.backupAt, sales: v.chk.sales, products: v.chk.products };
+  }));
+  // Mot de passe oublié : code de demande, puis code du vendeur
+  ipcMain.handle('cloud.rescueStart', cloudCall((a) => cloud.rescueStart(a)));
+  ipcMain.handle('cloud.rescueFinish', cloudCall(async (a) => {
+    const r = await cloud.rescueFinish(a);
+    const v = restoreFromFile(r.file);
+    if (!v.ok) throw new Error(v.error);
+    const done = replaceDatabase(r.file);
+    if (!done.ok) throw new Error(done.error);
+    return { backupAt: r.backupAt, sales: v.chk.sales, products: v.chk.products, users: store.allowReset() };
+  }));
 
   createWindow();
   ensureDesktopShortcut();

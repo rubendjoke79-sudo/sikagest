@@ -88,6 +88,15 @@ Un code ne marche qu'une fois, sur ce PC-là. Seul votre fichier SikaGest-Admin.
 
 Dans **SikaGest-Admin.html → Installations en direct**, vous voyez tous vos clients avec un lien WhatsApp et Appeler, la zone, la version installée, la date d'installation et l'activité récente (« En ligne » si le logiciel est ouvert). Vous pouvez aussi ajouter vos notes et exporter la liste. Seul le compte rubendjoke79@gmail.com, une fois son e-mail confirmé, peut lire cette liste.
 
+## Sauvegarde en ligne chiffrée
+
+- Dès qu'un **administrateur** se connecte, SikaGest crée le compte en ligne de l'entreprise (identifié par le **téléphone de l'entreprise**), puis envoie une copie **chiffrée** des données toutes les 3 heures quand Internet est disponible. Le serveur garde les 5 derniers jours.
+- Le chiffrement est fait sur le PC du client : ni vous ni Supabase ne pouvez lire les ventes.
+- **Nouveau PC** : écran de bienvenue → « Récupérer mes données » → téléphone + identifiant + mot de passe d'un administrateur. On peut aussi le faire depuis **Paramètres → Sauvegarde en ligne**.
+- **Mot de passe oublié + nouveau PC** : le client clique sur « Mot de passe oublié ? » dans cette fenêtre et vous envoie son code de demande. Dans **SikaGest-Admin.html → Secours sauvegarde en ligne**, vous collez le code et obtenez le code de secours. **Vérifiez d'abord que la personne écrit bien depuis le numéro de l'entreprise affiché.**
+- Côté serveur : tables `cloud_accounts`, `cloud_logins`, `cloud_attempts`, espace de stockage privé `backups`, et la fonction `cloud` (code source dans `server/functions/cloud/`). Le plan gratuit de Supabase offre 1 Go de stockage.
+- La licence voyage avec les données : après une récupération, le nouveau PC garde la licence du client.
+
 ## Vente : essai gratuit et licences
 
 - Chaque installation a **14 jours d'essai** (réglage `TRIAL_DAYS` dans `src/db.js`). Ensuite, les données restent consultables, mais il faut une licence pour enregistrer des ventes, des achats ou des produits.

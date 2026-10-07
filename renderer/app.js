@@ -200,6 +200,7 @@ async function route() {
   if (window.sika) { try { S.info = await window.sika.info(); } catch (e) { /* rien */ } }
   $('#modal-root').innerHTML = '';
   if (window.sika && window.sika.backupStatus) { try { S.backup = await window.sika.backupStatus(); } catch (e) { S.backup = null; } }
+  if (window.sika && window.sika.cloudStatus) { try { S.cloud = await window.sika.cloudStatus(); } catch (e) { S.cloud = null; } }
   renderShell();
   renderLicenseBanner();
   renderBackupBanner();
@@ -303,7 +304,7 @@ function authLayout(inner) {
 }
 const ACTIVITIES = ['Boutique / alimentation', 'Supermarché', 'Pharmacie', 'Quincaillerie', 'Restaurant / maquis', 'Boulangerie', 'Cosmétiques', 'Vêtements / mode', 'Téléphonie / électronique', 'Pièces auto / moto', 'Librairie / papeterie', 'Grossiste / distribution', 'Autre'];
 const activityOptions = (sel = '') => `<option value="">— Choisir —</option>` + ACTIVITIES.map((a) => `<option ${a === sel ? 'selected' : ''}>${a}</option>`).join('');
-const PRIVACY_NOTE = 'Ces coordonnées sont transmises à votre fournisseur SikaGest uniquement pour vous assister. Vos ventes, produits et clients restent sur votre ordinateur.';
+const PRIVACY_NOTE = 'Ces coordonnées sont transmises à votre fournisseur SikaGest uniquement pour vous assister. Vos ventes, produits et clients sont sauvegardés en ligne sous forme chiffrée : ni votre fournisseur ni personne d\'autre ne peut les lire.';
 
 function showSetup() {
   authLayout(`<h1>Bienvenue 👋</h1><p class="hint">Présentez votre entreprise et créez le compte administrateur.</p>
@@ -317,8 +318,10 @@ function showSetup() {
     <div class="field"><label>Identifiant de connexion *</label><input class="input" name="username" value="admin" required></div>
     <div class="field"><label>Mot de passe * (4 caractères min.)</label><input class="input" type="password" name="password" required></div></div>
     <p class="hint" style="margin:0;font-size:12.5px">${PRIVACY_NOTE}</p>
-    <div id="auth-err"></div><button class="btn primary lg" type="submit">Créer et commencer</button>`);
+    <div id="auth-err"></div><button class="btn primary lg" type="submit">Créer et commencer</button>
+    ${window.sika && window.sika.cloudRestore ? '<div class="cloud-link">Vous utilisiez déjà SikaGest sur un autre ordinateur ? <button class="btn ghost" type="button" id="has-account">Récupérer mes données</button></div>' : ''}`);
   $('.auth-box').style.width = 'min(560px, 100%)';
+  if ($('#has-account')) $('#has-account').addEventListener('click', () => cloudRestoreModal());
   $('#auth-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     try { S.user = await API.call('auth.setup', formData(e.target)); if (window.sika) window.sika.syncNow(); start(); }
@@ -395,22 +398,103 @@ async function showRecovery() {
         try { users = await API.call('recovery.unlock', { code: $('#ul', el).value }); }
         catch (e) { $('#rc-err', el).innerHTML = `<div class="err-box">${esc(e.message)}</div>`; return; }
         close();
-        modal({
-          title: 'Nouveau mot de passe',
-          body: `<p style="margin-top:0;color:var(--ok)"><b>Déblocage réussi.</b> Choisissez le compte et son nouveau mot de passe.</p>
-            <div class="grid-form"><div class="field full"><label>Compte</label><select class="input" id="ru">${users.map((u) => `<option value="${u.id}">${esc(u.name)} — ${esc(u.username)} (${u.role === 'admin' ? 'Administrateur' : 'Vendeur'}${u.active ? '' : ', désactivé'})</option>`).join('')}</select></div>
-            <div class="field"><label>Nouveau mot de passe</label><input class="input" type="password" id="rp1"></div>
-            <div class="field"><label>Confirmer</label><input class="input" type="password" id="rp2"></div></div><div id="rc2-err" style="margin-top:10px"></div>`,
-          foot: '<button class="btn primary" id="rp-ok">Enregistrer</button>',
-          onMount: (el2, close2) => $('#rp-ok', el2).addEventListener('click', async () => {
-            if ($('#rp1', el2).value !== $('#rp2', el2).value) { $('#rc2-err', el2).innerHTML = '<div class="err-box">Les deux mots de passe ne sont pas identiques.</div>'; return; }
-            try {
-              const r = await API.call('recovery.reset', { user_id: Number($('#ru', el2).value), password: $('#rp1', el2).value });
-              close2(); toast(`Mot de passe changé. Connectez-vous avec « ${r.username} ».`, 'ok');
-              const f = $('[name=username]'); if (f) f.value = r.username;
-            } catch (e) { $('#rc2-err', el2).innerHTML = `<div class="err-box">${esc(e.message)}</div>`; }
-          }),
-        });
+        newPasswordModal(users);
+      });
+    },
+  });
+}
+
+// Choix d'un nouveau mot de passe après un déblocage validé par le fournisseur
+function newPasswordModal(users, intro = '<b>Déblocage réussi.</b> Choisissez le compte et son nouveau mot de passe.') {
+  modal({
+    title: 'Nouveau mot de passe',
+    body: `<p style="margin-top:0;color:var(--ok)">${intro}</p>
+      <div class="grid-form"><div class="field full"><label>Compte</label><select class="input" id="ru">${users.map((u) => `<option value="${u.id}">${esc(u.name)} — ${esc(u.username)} (${u.role === 'admin' ? 'Administrateur' : 'Vendeur'}${u.active ? '' : ', désactivé'})</option>`).join('')}</select></div>
+      <div class="field"><label>Nouveau mot de passe</label><input class="input" type="password" id="rp1"></div>
+      <div class="field"><label>Confirmer</label><input class="input" type="password" id="rp2"></div></div><div id="rc2-err" style="margin-top:10px"></div>`,
+    foot: '<button class="btn primary" id="rp-ok">Enregistrer</button>',
+    onMount: (el2, close2) => $('#rp-ok', el2).addEventListener('click', async () => {
+      if ($('#rp1', el2).value !== $('#rp2', el2).value) { $('#rc2-err', el2).innerHTML = '<div class="err-box">Les deux mots de passe ne sont pas identiques.</div>'; return; }
+      try {
+        const r = await API.call('recovery.reset', { user_id: Number($('#ru', el2).value), password: $('#rp1', el2).value });
+        close2(); toast(`Mot de passe changé. Connectez-vous avec « ${r.username} ».`, 'ok');
+        const f = $('[name=username]'); if (f) f.value = r.username;
+      } catch (e) { $('#rc2-err', el2).innerHTML = `<div class="err-box">${esc(e.message)}</div>`; }
+    }),
+  });
+}
+
+// ---------- Sauvegarde en ligne : récupérer ses données sur un nouvel ordinateur ----------
+const cloudErr = (el, m) => { $('[data-err]', el).innerHTML = m ? `<div class="err-box">${esc(m)}</div>` : ''; };
+const busy = (btn, on, label) => { btn.disabled = on; if (label) btn.textContent = label; };
+const sinceText = (iso) => (iso ? new Date(iso).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'inconnue');
+async function afterCloudRestore(r, message) {
+  toast(message || `Données récupérées : ${r.sales} vente(s), ${r.products} produit(s).`, 'ok');
+  S.user = null; S.backup = null;
+  await boot();
+}
+function cloudRestoreModal({ replacing = false, phone = '' } = {}) {
+  modal({
+    title: 'Récupérer mes données en ligne',
+    body: `<p style="margin-top:0;color:var(--ink-2)">Entrez le <b>téléphone de l'entreprise</b> et l'<b>identifiant / mot de passe d'un administrateur</b>, comme sur votre ancien ordinateur. Internet est nécessaire.</p>
+      ${replacing ? '<div class="err-box" style="margin-bottom:12px">Les données actuelles de cet ordinateur seront remplacées par celles en ligne. Une copie des données actuelles est gardée dans les sauvegardes automatiques.</div>' : ''}
+      <div class="grid-form"><div class="field full"><label>Téléphone de l'entreprise</label><input class="input" id="cr-phone" value="${esc(phone)}" placeholder="07 07 00 00 00"></div>
+      <div class="field"><label>Identifiant</label><input class="input" id="cr-user" value="admin"></div>
+      <div class="field"><label>Mot de passe</label><input class="input" type="password" id="cr-pw"></div></div>
+      <div data-err style="margin-top:10px"></div>`,
+    foot: '<button class="btn ghost" id="cr-forgot">Mot de passe oublié ?</button><span style="flex:1"></span><button class="btn" data-close>Annuler</button><button class="btn primary" id="cr-ok">Récupérer mes données</button>',
+    onMount: (el, close) => {
+      $('#cr-forgot', el).addEventListener('click', () => { const p = $('#cr-phone', el).value; close(); cloudRescueModal(p); });
+      const go = async () => {
+        const btn = $('#cr-ok', el); cloudErr(el, '');
+        busy(btn, true, 'Récupération en cours…');
+        const r = await window.sika.cloudRestore({ phone: $('#cr-phone', el).value, username: $('#cr-user', el).value, password: $('#cr-pw', el).value });
+        if (!r.ok) { busy(btn, false, 'Récupérer mes données'); return cloudErr(el, r.error); }
+        close();
+        await afterCloudRestore(r.data, `Bienvenue ${r.data.shop || ''} ! ${r.data.sales} vente(s) et ${r.data.products} produit(s) récupérés. Connectez-vous avec votre identifiant habituel.`);
+      };
+      $('#cr-ok', el).addEventListener('click', go);
+      $('#cr-pw', el).addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+    },
+  });
+}
+// Mot de passe oublié ET nouvel ordinateur : le fournisseur débloque la sauvegarde avec sa clé de secours
+function cloudRescueModal(phone = '') {
+  modal({
+    title: 'Mot de passe oublié',
+    body: `<p style="margin-top:0;color:var(--ink-2)">Votre fournisseur SikaGest peut débloquer votre sauvegarde en ligne. Il ne voit jamais vos ventes.</p>
+      <div class="field"><label>Téléphone de l'entreprise</label><div style="display:flex;gap:8px"><input class="input" id="rs-phone" value="${esc(phone)}" style="flex:1"><button class="btn primary" id="rs-start">Obtenir mon code de demande</button></div></div>
+      <div id="rs-step2" hidden>
+        <ol style="margin:14px 0;padding-left:20px;color:var(--ink-2)"><li>Envoyez ce <b>code de demande</b> à votre fournisseur, <b>depuis le numéro de l'entreprise</b>.</li><li>Il vous renvoie un <b>code de secours</b> : collez-le ci-dessous.</li></ol>
+        <div class="field"><label>Code de demande</label><textarea class="input" id="rs-req" rows="3" readonly style="font:600 14px/1.4 ui-monospace,Consolas,monospace;resize:none"></textarea>
+          <div style="display:flex;gap:8px;margin-top:8px"><button class="btn" id="rs-copy">Copier</button><a class="btn" id="rs-wa" target="_blank" rel="noopener" hidden>Envoyer par WhatsApp</a></div></div>
+        <div class="field" style="margin-top:14px"><label>Code de secours reçu</label><textarea class="input" id="rs-ans" rows="2" placeholder="Collez ici le code reçu" style="font-family:ui-monospace,Consolas,monospace;resize:vertical"></textarea></div>
+      </div>
+      <p class="hint" id="rs-info" style="margin:10px 0 0"></p><div data-err style="margin-top:10px"></div>`,
+    foot: '<button class="btn" data-close>Fermer</button><button class="btn primary" id="rs-ok" hidden>Récupérer mes données</button>',
+    onMount: (el, close) => {
+      let msg = '';
+      $('#rs-start', el).addEventListener('click', async () => {
+        cloudErr(el, ''); const btn = $('#rs-start', el); busy(btn, true);
+        const r = await window.sika.cloudRescueStart({ phone: $('#rs-phone', el).value });
+        busy(btn, false);
+        if (!r.ok) return cloudErr(el, r.error);
+        msg = `Bonjour, j'ai oublié mon mot de passe SikaGest et je dois récupérer ma sauvegarde en ligne (${r.data.shop || ''}). Code de demande :\n${r.data.code}`;
+        $('#rs-req', el).value = r.data.code;
+        $('#rs-info', el).textContent = `Compte trouvé : ${r.data.shop || '—'} · dernière sauvegarde en ligne : ${sinceText(r.data.backupAt)}`;
+        $('#rs-step2', el).hidden = false; $('#rs-ok', el).hidden = false;
+        const w = waUrl ? waUrl(msg) : ''; if (w) { $('#rs-wa', el).href = w; $('#rs-wa', el).hidden = false; }
+      });
+      $('#rs-copy', el).addEventListener('click', async () => {
+        try { await navigator.clipboard.writeText(msg); toast('Code copié. Collez-le dans WhatsApp ou un SMS.', 'ok'); }
+        catch (e) { $('#rs-req', el).select(); document.execCommand('copy'); toast('Code copié', 'ok'); }
+      });
+      $('#rs-ok', el).addEventListener('click', async () => {
+        cloudErr(el, ''); const btn = $('#rs-ok', el); busy(btn, true, 'Récupération en cours…');
+        const r = await window.sika.cloudRescueFinish({ code: $('#rs-ans', el).value });
+        if (!r.ok) { busy(btn, false, 'Récupérer mes données'); return cloudErr(el, r.error); }
+        close(); S.user = null; await boot();
+        newPasswordModal(r.data.users, `<b>Vos données sont récupérées</b> (${r.data.sales} vente(s), ${r.data.products} produit(s)). Choisissez maintenant un nouveau mot de passe.`);
       });
     },
   });

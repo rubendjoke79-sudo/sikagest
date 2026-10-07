@@ -2,3 +2,7 @@ node_modules/
 dist/
 dev/dev-data/
 .build-cache/
+
+# Espace administrateur (contient la clé secrète) : ne jamais publier
+SikaGest-Admin*.html
+*A-PROTEGER*.html
