@@ -92,6 +92,29 @@ app.whenReady().then(() => {
   } catch (e) { /* non bloquant */ }
 
   createWindow();
+  ensureDesktopShortcut();
 });
+
+// Au premier lancement, crée le raccourci sur le bureau de l'utilisateur s'il n'existe pas
+// (par ex. quand l'installation a été faite avec un autre compte administrateur).
+function ensureDesktopShortcut() {
+  if (process.platform !== 'win32' || !app.isPackaged || PORTABLE_DIR) return;
+  try {
+    const marker = path.join(app.getPath('userData'), 'raccourci-bureau.ok');
+    if (fs.existsSync(marker)) return;
+    const name = 'SikaGest.lnk';
+    const userDesk = path.join(app.getPath('desktop'), name);
+    const publicDesk = path.join(process.env.PUBLIC || 'C:\\Users\\Public', 'Desktop', name);
+    if (!fs.existsSync(userDesk) && !fs.existsSync(publicDesk)) {
+      const ico = path.join(EXE_DIR, 'SikaGest.ico');
+      shell.writeShortcutLink(userDesk, 'create', {
+        target: process.execPath, cwd: EXE_DIR, description: 'SikaGest — gestion commerciale',
+        ...(fs.existsSync(ico) ? { icon: ico, iconIndex: 0 } : {}),
+      });
+    }
+    fs.mkdirSync(path.dirname(marker), { recursive: true });
+    fs.writeFileSync(marker, new Date().toISOString());
+  } catch (e) { /* non bloquant */ }
+}
 
 app.on('window-all-closed', () => { if (store) { store.checkpoint(); store.close(); } app.quit(); });
