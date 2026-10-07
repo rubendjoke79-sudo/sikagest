@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const { createStore, AppError } = require('./db');
 const updater = require('./updater');
+const register = require('./register');
 
 // Version portable (clé USB) : un fichier « portable.flag » à côté du .exe.
 // Les données restent alors dans le dossier du logiciel, sur la clé.
@@ -47,6 +48,7 @@ app.whenReady().then(() => {
 
   ipcMain.handle('app.info', () => ({ version: app.getVersion(), portable: !!PORTABLE_DIR, dataDir: DATA_DIR, engine: store.driver }));
   ipcMain.handle('app.openDataDir', () => shell.openPath(DATA_DIR));
+  ipcMain.handle('register.sync', () => register.sync());
 
   // Sauvegarde : copie du fichier de base de données
   ipcMain.handle('backup.export', async () => {
@@ -93,6 +95,9 @@ app.whenReady().then(() => {
 
   createWindow();
   ensureDesktopShortcut();
+  if (app.isPackaged || process.env.SIKAGEST_REGISTER === '1') {
+    register.init(() => store.call('settings.get'), { portable: !!PORTABLE_DIR });
+  }
 });
 
 // Au premier lancement, crée le raccourci sur le bureau de l'utilisateur s'il n'existe pas

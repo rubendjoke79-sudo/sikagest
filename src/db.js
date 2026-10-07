@@ -67,6 +67,7 @@ CREATE INDEX IF NOT EXISTS idx_moves_prod ON stock_moves(product_id);
 
 const DEFAULT_SETTINGS = {
   company_name: 'Ma Boutique', company_phone: '', company_address: '', company_email: '',
+  company_city: '', company_district: '', company_activity: '', owner_name: '',
   currency: 'FCFA', invoice_footer: 'Merci pour votre confiance !', ticket_format: 'ticket',
 };
 
@@ -137,14 +138,15 @@ function createStore(file, opts = {}) {
       const count = q.get('SELECT COUNT(*) AS n FROM users').n;
       return { needsSetup: count === 0, user: session };
     },
-    'auth.setup'({ name, username, password, company_name }) {
+    'auth.setup'({ name, username, password, company_name, company_phone, company_city, company_district, company_activity, company_email }) {
       if (q.get('SELECT COUNT(*) AS n FROM users').n > 0) fail('Le compte administrateur existe déjà.');
       if (!name || !username || !password) fail('Tous les champs sont obligatoires.');
       if (String(password).length < 4) fail('Le mot de passe doit contenir au moins 4 caractères.');
       const salt = crypto.randomBytes(16).toString('hex');
       q.run('INSERT INTO users(name,username,pass_hash,salt,role) VALUES(?,?,?,?,?)',
         name.trim(), username.trim().toLowerCase(), hashPass(password, salt), salt, 'admin');
-      if (company_name) q.run('UPDATE settings SET value=? WHERE key=?', company_name.trim(), 'company_name');
+      const extra = { company_name, company_phone, company_city, company_district, company_activity, company_email, owner_name: name };
+      for (const [k, v] of Object.entries(extra)) if (v != null && String(v).trim()) setSetting(k, String(v).trim());
       return api['auth.login']({ username, password });
     },
     'auth.login'({ username, password }) {

@@ -38,7 +38,7 @@ cp -r "$ROOT/src" "$ROOT/renderer" "$APP/"
 cp "$ROOT/build/icon.png" "$APP/build/"
 node -e "
   const p=require('$ROOT/package.json');
-  const out={name:p.name,productName:p.productName,version:p.version,description:p.description,main:p.main,updates:p.updates};
+  const out={name:p.name,productName:p.productName,version:p.version,description:p.description,main:p.main,updates:p.updates,server:p.server};
   require('fs').writeFileSync('$APP/package.json', JSON.stringify(out,null,2));"
 cp -r "$CACHE/bs3src/lib" "$CACHE/bs3src/package.json" "$CACHE/bs3src/LICENSE" "$APP/node_modules/better-sqlite3/"
 tar -xzf "$CACHE/dl/bs3-win.tar.gz" -C "$CACHE" build/Release/better_sqlite3.node

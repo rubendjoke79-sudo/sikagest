@@ -218,19 +218,60 @@ function authLayout(inner) {
       <div style="color:var(--side-ink-2);font-size:12.5px">Version ${esc(S.info.version)}${S.info.portable ? ' · portable' : ''}</div><div class="rings"></div></div>
     <div class="auth-form"><form class="auth-box" id="auth-form" autocomplete="off">${inner}</form></div></div>`;
 }
+const ACTIVITIES = ['Boutique / alimentation', 'Supermarché', 'Pharmacie', 'Quincaillerie', 'Restaurant / maquis', 'Boulangerie', 'Cosmétiques', 'Vêtements / mode', 'Téléphonie / électronique', 'Pièces auto / moto', 'Librairie / papeterie', 'Grossiste / distribution', 'Autre'];
+const activityOptions = (sel = '') => `<option value="">— Choisir —</option>` + ACTIVITIES.map((a) => `<option ${a === sel ? 'selected' : ''}>${a}</option>`).join('');
+const PRIVACY_NOTE = 'Ces coordonnées sont transmises à votre fournisseur SikaGest uniquement pour vous assister. Vos ventes, produits et clients restent sur votre ordinateur.';
+
 function showSetup() {
-  authLayout(`<h1>Bienvenue 👋</h1><p class="hint">Créez le compte administrateur pour commencer.</p>
-    <div class="field"><label>Nom de votre entreprise</label><input class="input" name="company_name" placeholder="Ex. : Boutique Awa" required></div>
-    <div class="field"><label>Votre nom</label><input class="input" name="name" required></div>
-    <div class="field"><label>Identifiant de connexion</label><input class="input" name="username" value="admin" required></div>
-    <div class="field"><label>Mot de passe (4 caractères min.)</label><input class="input" type="password" name="password" required></div>
+  authLayout(`<h1>Bienvenue 👋</h1><p class="hint">Présentez votre entreprise et créez le compte administrateur.</p>
+    <div class="field"><label>Nom de votre entreprise *</label><input class="input" name="company_name" placeholder="Ex. : Boutique Awa" required></div>
+    <div class="grid-form"><div class="field"><label>Votre nom *</label><input class="input" name="name" required></div>
+    <div class="field"><label>Téléphone / WhatsApp *</label><input class="input" name="company_phone" placeholder="07 07 00 00 00" required></div>
+    <div class="field"><label>Ville *</label><input class="input" name="company_city" placeholder="Ex. : Abidjan" required></div>
+    <div class="field"><label>Quartier / commune</label><input class="input" name="company_district" placeholder="Ex. : Cocody"></div>
+    <div class="field"><label>Activité</label><select class="input" name="company_activity">${activityOptions()}</select></div>
+    <div class="field"><label>E-mail (facultatif)</label><input class="input" type="email" name="company_email"></div>
+    <div class="field"><label>Identifiant de connexion *</label><input class="input" name="username" value="admin" required></div>
+    <div class="field"><label>Mot de passe * (4 caractères min.)</label><input class="input" type="password" name="password" required></div></div>
+    <p class="hint" style="margin:0;font-size:12.5px">${PRIVACY_NOTE}</p>
     <div id="auth-err"></div><button class="btn primary lg" type="submit">Créer et commencer</button>`);
+  $('.auth-box').style.width = 'min(560px, 100%)';
   $('#auth-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    try { S.user = await API.call('auth.setup', formData(e.target)); start(); }
+    try { S.user = await API.call('auth.setup', formData(e.target)); if (window.sika) window.sika.syncNow(); start(); }
     catch (err) { $('#auth-err').innerHTML = `<div class="err-box">${esc(err.message)}</div>`; }
   });
 }
+
+// Pour les installations existantes : compléter les coordonnées une fois
+function askProfile() {
+  const st = S.settings;
+  if (!isAdmin() || (st.company_phone && st.company_city)) return;
+  try { if (sessionStorage.getItem('profile-later')) return; } catch (e) { /* rien */ }
+  modal({
+    title: 'Complétez vos coordonnées',
+    body: `<p style="margin-top:0;color:var(--ink-2)">Pour que votre fournisseur puisse vous aider rapidement en cas de besoin.</p>
+      <div class="grid-form"><div class="field"><label>Entreprise *</label><input class="input" name="company_name" value="${esc(st.company_name)}"></div>
+      <div class="field"><label>Votre nom *</label><input class="input" name="owner_name" value="${esc(st.owner_name || S.user.name)}"></div>
+      <div class="field"><label>Téléphone / WhatsApp *</label><input class="input" name="company_phone" value="${esc(st.company_phone)}"></div>
+      <div class="field"><label>Ville *</label><input class="input" name="company_city" value="${esc(st.company_city)}"></div>
+      <div class="field"><label>Quartier / commune</label><input class="input" name="company_district" value="${esc(st.company_district)}"></div>
+      <div class="field"><label>Activité</label><select class="input" name="company_activity">${activityOptions(st.company_activity)}</select></div></div>
+      <p style="color:var(--ink-3);font-size:12.5px;margin-bottom:0">${PRIVACY_NOTE}</p>`,
+    foot: '<button class="btn" data-close id="pf-later">Plus tard</button><button class="btn primary" id="pf-save">Enregistrer</button>',
+    onMount: (el, close) => {
+      $('#pf-later', el).addEventListener('click', () => { try { sessionStorage.setItem('profile-later', '1'); } catch (e) { /* rien */ } });
+      $('#pf-save', el).addEventListener('click', async () => {
+        const f = formData(el);
+        if (!f.company_name.trim() || !f.company_phone.trim() || !f.company_city.trim()) return toast('Entreprise, téléphone et ville sont obligatoires.', 'err');
+        S.settings = await run(() => API.call('settings.save', f), 'Coordonnées enregistrées');
+        if (window.sika) window.sika.syncNow();
+        close(); route();
+      });
+    },
+  });
+}
+
 function showLogin() {
   authLayout(`<h1>Connexion</h1><p class="hint">${esc(S.settings.company_name)}</p>
     <div class="field"><label>Identifiant</label><input class="input" name="username" required></div>
@@ -295,7 +336,8 @@ async function showRecovery() {
 async function start() {
   S.settings = await API.call('settings.get');
   if (!location.hash) location.hash = '#/dashboard';
-  route();
+  await route();
+  askProfile();
 }
 async function boot() {
   if (window.sika) {

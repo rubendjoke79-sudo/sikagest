@@ -688,7 +688,11 @@ VIEWS.settings = async (c) => {
   c.innerHTML = `<div class="dash-grid" style="grid-template-columns:1fr 1fr">
     <div class="card"><div class="card-h"><h3>Entreprise</h3></div><form class="card-b grid-form" id="st">
       <div class="field full"><label>Nom de l'entreprise</label><input class="input" name="company_name" value="${esc(s.company_name)}" ${dis}></div>
-      <div class="field"><label>Téléphone</label><input class="input" name="company_phone" value="${esc(s.company_phone)}" ${dis}></div>
+      <div class="field"><label>Gérant</label><input class="input" name="owner_name" value="${esc(s.owner_name)}" ${dis}></div>
+      <div class="field"><label>Téléphone / WhatsApp</label><input class="input" name="company_phone" value="${esc(s.company_phone)}" ${dis}></div>
+      <div class="field"><label>Ville</label><input class="input" name="company_city" value="${esc(s.company_city)}" ${dis}></div>
+      <div class="field"><label>Quartier / commune</label><input class="input" name="company_district" value="${esc(s.company_district)}" ${dis}></div>
+      <div class="field"><label>Activité</label><select class="input" name="company_activity" ${dis}>${activityOptions(s.company_activity)}</select></div>
       <div class="field"><label>E-mail</label><input class="input" name="company_email" value="${esc(s.company_email)}" ${dis}></div>
       <div class="field full"><label>Adresse</label><input class="input" name="company_address" value="${esc(s.company_address)}" ${dis}></div>
       <div class="field"><label>Monnaie</label><input class="input" name="currency" value="${esc(s.currency)}" ${dis}></div>
@@ -710,7 +714,7 @@ VIEWS.settings = async (c) => {
         <div class="field"><label>Nouveau mot de passe</label><input class="input" type="password" name="password"></div>
         <div class="full"><button class="btn">Changer</button></div></form></div>
     </div></div>`;
-  if (isAdmin()) $('#st').addEventListener('submit', async (e) => { e.preventDefault(); S.settings = await run(() => API.call('settings.save', formData(e.target)), 'Paramètres enregistrés'); route(); });
+  if (isAdmin()) $('#st').addEventListener('submit', async (e) => { e.preventDefault(); S.settings = await run(() => API.call('settings.save', formData(e.target)), 'Paramètres enregistrés'); if (window.sika) window.sika.syncNow(); route(); });
   $('#pw').addEventListener('submit', async (e) => { e.preventDefault(); await run(() => API.call('auth.changePassword', formData(e.target)), 'Mot de passe modifié'); e.target.reset(); });
   const desktop = !!window.sika;
   if (desktop) $('#b-path').textContent = `Emplacement : ${S.info.dataDir}`;

@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('sika', {
   backupExport: () => ipcRenderer.invoke('backup.export'),
   backupImport: () => ipcRenderer.invoke('backup.import'),
   checkUpdates: () => ipcRenderer.invoke('update.check'),
+  syncNow: () => ipcRenderer.invoke('register.sync'),
   installUpdate: () => ipcRenderer.invoke('update.install'),
   onUpdate: (cb) => ipcRenderer.on('update.status', (_e, s) => cb(s)),
 });

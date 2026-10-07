@@ -1,7 +1,7 @@
 {
   "name": "sikagest",
   "productName": "SikaGest",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Logiciel de gestion commerciale : caisse, ventes, achats, stock, clients et rapports.",
   "author": "SikaGest",
   "license": "UNLICENSED",
@@ -11,6 +11,10 @@
     "start": "electron .",
     "preview": "node dev/server.js",
     "build:win": "bash tools/build-windows.sh"
+  },
+  "server": {
+    "url": "https://amyeajnxdeeynxdveahu.supabase.co",
+    "key": "sb_publishable_ruU1tjtP1wTh7IpIaA60FA_UjKPK7IQ"
   },
   "updates": {
     "provider": "github",
