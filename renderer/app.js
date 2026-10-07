@@ -235,13 +235,63 @@ function showLogin() {
   authLayout(`<h1>Connexion</h1><p class="hint">${esc(S.settings.company_name)}</p>
     <div class="field"><label>Identifiant</label><input class="input" name="username" required></div>
     <div class="field"><label>Mot de passe</label><input class="input" type="password" name="password" required></div>
-    <div id="auth-err"></div><button class="btn primary lg" type="submit">Se connecter</button>`);
+    <div id="auth-err"></div><button class="btn primary lg" type="submit">Se connecter</button>
+    <button class="btn ghost" type="button" id="forgot">Mot de passe oublié ?</button>`);
+  $('#forgot').addEventListener('click', showRecovery);
   $('#auth-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     try { S.user = await API.call('auth.login', formData(e.target)); start(); }
     catch (err) { $('#auth-err').innerHTML = `<div class="err-box">${esc(err.message)}</div>`; }
   });
 }
+// ---------- Mot de passe oublié ----------
+async function showRecovery() {
+  let req;
+  try { req = await API.call('recovery.request'); } catch (e) { return toast(e.message, 'err'); }
+  const msg = `Bonjour, j'ai perdu l'accès à SikaGest (${req.company}). Code de demande : ${req.code}`;
+  modal({
+    title: 'Mot de passe oublié',
+    body: `<ol style="margin:0 0 14px;padding-left:20px;color:var(--ink-2)">
+        <li>Envoyez ce <b>code de demande</b> à votre fournisseur SikaGest (WhatsApp, SMS, appel).</li>
+        <li>Il vous renvoie un <b>code de déblocage</b>.</li><li>Collez-le ci-dessous, puis choisissez un nouveau mot de passe.</li></ol>
+      <div class="field"><label>Code de demande</label>
+        <div style="display:flex;gap:8px"><input class="input" id="rq" value="${esc(req.code)}" readonly style="flex:1;font:600 16px/1 ui-monospace,Consolas,monospace;letter-spacing:1px">
+        <button class="btn" id="rq-copy">Copier</button></div></div>
+      <div class="field" style="margin-top:14px"><label>Code de déblocage</label>
+        <textarea class="input" id="ul" rows="3" placeholder="Collez ici le code reçu" style="font-family:ui-monospace,Consolas,monospace;resize:vertical"></textarea></div>
+      <div id="rc-err" style="margin-top:10px"></div>`,
+    foot: '<button class="btn" data-close>Fermer</button><button class="btn primary" id="ul-ok">Débloquer</button>',
+    onMount: (el, close) => {
+      $('#rq-copy', el).addEventListener('click', async () => {
+        try { await navigator.clipboard.writeText(msg); toast('Code copié. Collez-le dans WhatsApp ou un SMS.', 'ok'); }
+        catch (e) { $('#rq', el).select(); document.execCommand('copy'); toast('Code copié', 'ok'); }
+      });
+      $('#ul-ok', el).addEventListener('click', async () => {
+        let users;
+        try { users = await API.call('recovery.unlock', { code: $('#ul', el).value }); }
+        catch (e) { $('#rc-err', el).innerHTML = `<div class="err-box">${esc(e.message)}</div>`; return; }
+        close();
+        modal({
+          title: 'Nouveau mot de passe',
+          body: `<p style="margin-top:0;color:var(--ok)"><b>Déblocage réussi.</b> Choisissez le compte et son nouveau mot de passe.</p>
+            <div class="grid-form"><div class="field full"><label>Compte</label><select class="input" id="ru">${users.map((u) => `<option value="${u.id}">${esc(u.name)} — ${esc(u.username)} (${u.role === 'admin' ? 'Administrateur' : 'Vendeur'}${u.active ? '' : ', désactivé'})</option>`).join('')}</select></div>
+            <div class="field"><label>Nouveau mot de passe</label><input class="input" type="password" id="rp1"></div>
+            <div class="field"><label>Confirmer</label><input class="input" type="password" id="rp2"></div></div><div id="rc2-err" style="margin-top:10px"></div>`,
+          foot: '<button class="btn primary" id="rp-ok">Enregistrer</button>',
+          onMount: (el2, close2) => $('#rp-ok', el2).addEventListener('click', async () => {
+            if ($('#rp1', el2).value !== $('#rp2', el2).value) { $('#rc2-err', el2).innerHTML = '<div class="err-box">Les deux mots de passe ne sont pas identiques.</div>'; return; }
+            try {
+              const r = await API.call('recovery.reset', { user_id: Number($('#ru', el2).value), password: $('#rp1', el2).value });
+              close2(); toast(`Mot de passe changé. Connectez-vous avec « ${r.username} ».`, 'ok');
+              const f = $('[name=username]'); if (f) f.value = r.username;
+            } catch (e) { $('#rc2-err', el2).innerHTML = `<div class="err-box">${esc(e.message)}</div>`; }
+          }),
+        });
+      });
+    },
+  });
+}
+
 async function start() {
   S.settings = await API.call('settings.get');
   if (!location.hash) location.hash = '#/dashboard';

@@ -71,3 +71,13 @@ tools/installer.nsi    script de l'installateur
 - **Changer le nom** : remplacez « SikaGest » dans `package.json`, `tools/`, `renderer/` et `build/icon.*`.
 - **Icône du fichier .exe** : les raccourcis et la fenêtre affichent l'icône SikaGest, mais le fichier `SikaGest.exe` garde l'icône d'Electron.
 - **Plusieurs caisses sur un même stock** : cette version fonctionne avec une base de données par PC. Pour partager le stock entre plusieurs PC ou boutiques, il faudra ajouter un serveur en ligne (évolution possible).
+
+## Mot de passe oublié (codes de déblocage)
+
+Les mots de passe ne sont jamais enregistrés en clair, même pas pour le fournisseur. Si un client perd son accès :
+
+1. Sur l'écran de connexion, il clique sur **Mot de passe oublié ?** et vous envoie le **code de demande**.
+2. Vous ouvrez **SikaGest-Admin.html** (votre espace administrateur), collez le code et obtenez le **code de déblocage**.
+3. Le client le colle, choisit le compte et un nouveau mot de passe. Toutes ses données sont conservées.
+
+Un code ne marche qu'une fois, sur ce PC-là. Seul votre fichier SikaGest-Admin.html peut en fabriquer : il contient la clé secrète, protégée par votre mot de passe. Il n'est **jamais** mis sur GitHub. Gardez-en une copie sur une clé USB.

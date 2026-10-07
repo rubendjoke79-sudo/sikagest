@@ -701,7 +701,8 @@ VIEWS.settings = async (c) => {
         <div class="toolbar" style="margin:0"><button class="btn" id="b-exp">Créer une sauvegarde…</button>${isAdmin() ? '<button class="btn" id="b-imp">Restaurer…</button>' : ''}<button class="btn ghost" id="b-dir">Ouvrir le dossier des données</button></div>
         <p style="color:var(--ink-3);font-size:12.5px;margin-bottom:0" id="b-path"></p></div></div>
       <div class="card"><div class="card-h"><h3>Mises à jour</h3></div><div class="card-b">
-        <p style="margin-top:0">Version installée : <b>${esc(S.info.version)}</b>${S.info.portable ? ' (portable)' : ''}</p>
+        <p style="margin-top:0">Version installée : <b>${esc(S.info.version)}</b>${S.info.portable ? ' (portable)' : ''}<br>
+        Identifiant d'installation : <b style="font-family:ui-monospace,Consolas,monospace">${esc(s.install_code || '')}</b></p>
         <p id="u-msg" style="color:var(--ink-2)">Le logiciel vérifie automatiquement les nouvelles versions quand Internet est disponible.</p>
         <button class="btn" id="u-chk">Rechercher une mise à jour</button></div></div>
       <div class="card"><div class="card-h"><h3>Mon mot de passe</h3></div><form class="card-b grid-form" id="pw">

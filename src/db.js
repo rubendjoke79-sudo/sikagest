@@ -4,6 +4,7 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const recovery = require('./recovery');
 
 function openDriver(file, nativeBinding) {
   try {
@@ -108,7 +109,14 @@ function createStore(file, opts = {}) {
     q.run('INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)', k, v);
   }
 
+  // Identifiant unique de cette installation (sert aux codes de déblocage)
+  q.run('INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)', 'install_id', crypto.randomBytes(8).toString('hex'));
+  const setting = (k) => { const r = q.get('SELECT value FROM settings WHERE key=?', k); return r ? r.value : null; };
+  const setSetting = (k, v) => q.run('INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)', k, v);
+
   let session = null; // utilisateur connecté
+  let recoveryOk = false; // déblocage validé
+  let failedUnlocks = 0;
   const needUser = () => session || fail('Veuillez vous connecter.');
   const needAdmin = () => { const u = needUser(); if (u.role !== 'admin') fail('Action réservée à l\'administrateur.'); return u; };
 
@@ -146,6 +154,40 @@ function createStore(file, opts = {}) {
       return session;
     },
     'auth.logout'() { session = null; return true; },
+
+    // ---------- Mot de passe oublié : code de demande / code de déblocage ----------
+    'recovery.request'() {
+      const DAY = 24 * 3600 * 1000;
+      let pending = null;
+      try { pending = JSON.parse(setting('recovery_pending') || 'null'); } catch (e) { pending = null; }
+      if (!pending || Date.now() - pending.t > 7 * DAY) {
+        pending = { nonce: crypto.randomBytes(6).toString('hex'), t: Date.now() };
+        setSetting('recovery_pending', JSON.stringify(pending));
+      }
+      return { code: recovery.makeRequest(setting('install_id'), pending.nonce), company: setting('company_name'), installId: recovery.formatInstallId(setting('install_id')) };
+    },
+    'recovery.unlock'({ code }) {
+      if (failedUnlocks >= 10) fail('Trop d\'essais. Fermez puis rouvrez le logiciel.');
+      let pending = null;
+      try { pending = JSON.parse(setting('recovery_pending') || 'null'); } catch (e) { pending = null; }
+      if (!pending) fail('Aucune demande en cours. Générez d\'abord un code de demande.');
+      if (!recovery.verifyUnlock(setting('install_id'), pending.nonce, code)) { failedUnlocks++; fail('Code de déblocage incorrect. Vérifiez qu\'il a été copié en entier.'); }
+      recoveryOk = true;
+      return q.all('SELECT id,name,username,role,active FROM users ORDER BY role, name');
+    },
+    'recovery.reset'({ user_id, password }) {
+      if (!recoveryOk) fail('Déblocage non validé.');
+      if (!password || String(password).length < 4) fail('Le mot de passe doit contenir au moins 4 caractères.');
+      const u = q.get('SELECT * FROM users WHERE id=?', user_id) || fail('Compte introuvable.');
+      const salt = crypto.randomBytes(16).toString('hex');
+      tx(() => {
+        q.run('UPDATE users SET pass_hash=?, salt=?, active=1 WHERE id=?', hashPass(password, salt), salt, u.id);
+        q.run('DELETE FROM settings WHERE key=?', 'recovery_pending');
+        setSetting('recovery_last', `${now()} — ${u.username}`);
+      });
+      recoveryOk = false;
+      return { username: u.username };
+    },
     'auth.changePassword'({ current, password }) {
       const u = needUser();
       const row = q.get('SELECT * FROM users WHERE id=?', u.id);
@@ -183,7 +225,8 @@ function createStore(file, opts = {}) {
     // ---------- Paramètres ----------
     'settings.get'() {
       const out = {};
-      for (const r of q.all('SELECT key,value FROM settings')) out[r.key] = r.value;
+      for (const r of q.all('SELECT key,value FROM settings')) if (r.key !== 'recovery_pending') out[r.key] = r.value;
+      out.install_code = recovery.formatInstallId(out.install_id);
       return out;
     },
     'settings.save'(values) {
