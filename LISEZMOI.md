@@ -98,7 +98,7 @@ Dans **SikaGest-Admin.html → Installations en direct**, vous voyez tous vos cl
 
 ## Site vitrine
 
-- Site : https://rubendjoke79-sudo.github.io/sikagest/ (dossier `docs/`)
+- Site : https://sikagest.github.io/sikagest/ (dossier `docs/`)
 - **Prix, numéro WhatsApp, e-mail** : modifiez seulement `docs/config.js`. Pour le numéro WhatsApp affiché dans le logiciel, modifiez aussi `vendor.whatsapp` dans `package.json`, puis publiez une nouvelle version.
 - Conditions de vente et données personnelles : `docs/conditions.html`. C'est un modèle à compléter (champs entre crochets) et à faire relire par un juriste.
 - Le bouton « Télécharger » pointe toujours vers la dernière version publiée.
