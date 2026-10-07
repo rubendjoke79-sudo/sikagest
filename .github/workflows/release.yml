@@ -1,0 +1,32 @@
+# Fabrique l'installateur Windows + la version portable et les publie comme mise à jour.
+# Se déclenche quand on crée une version : étiquette v1.0.1, v1.0.2…
+name: Publier une version
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Fabriquer les fichiers Windows
+        run: bash tools/build-windows.sh
+      - name: Publier sur la page Releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* --title "SikaGest ${TAG#v}" --notes "Nouvelle version de SikaGest."
+          fi

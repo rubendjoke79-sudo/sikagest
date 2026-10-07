@@ -1,0 +1,303 @@
+/* SikaGest — noyau de l'interface */
+'use strict';
+
+// ---------- Accès aux données ----------
+const API = {
+  async call(method, args) {
+    if (window.sika) return window.sika.call(method, args);
+    // Mode navigateur (aperçu / tests) : serveur de développement
+    const r = await fetch('/api', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method, args }) });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error);
+    return j.data;
+  },
+};
+
+const S = { user: null, settings: {}, info: { version: '1.0.0', portable: false }, update: null, lowStock: 0 };
+
+// ---------- Utilitaires ----------
+const $ = (sel, root = document) => root.querySelector(sel);
+const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const nf = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 });
+const nf2 = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 2 });
+const money = (v) => `${nf.format(Math.round(Number(v) || 0))} ${S.settings.currency || 'FCFA'}`;
+const qtyf = (v) => nf2.format(Number(v) || 0);
+const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const daysAgo = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const fdate = (s, withTime = true) => {
+  if (!s) return '';
+  const [d, t] = String(s).split(' ');
+  const [y, m, j] = d.split('-');
+  return `${j}/${m}/${y}${withTime && t ? ' ' + t.slice(0, 5) : ''}`;
+};
+const isAdmin = () => S.user && S.user.role === 'admin';
+const debounce = (fn, ms = 200) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
+
+function statusTag(doc) {
+  if (doc.cancelled) return '<span class="tag mute">Annulée</span>';
+  if (doc.status === 'payee') return '<span class="tag ok">Payée</span>';
+  if (doc.status === 'partielle') return '<span class="tag warn">Partielle</span>';
+  return '<span class="tag bad">Impayée</span>';
+}
+
+function toast(msg, type = '') {
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.textContent = msg;
+  $('#toasts').appendChild(el);
+  setTimeout(() => el.remove(), type === 'err' ? 5000 : 2800);
+}
+async function run(fn, okMsg) {
+  try { const r = await fn(); if (okMsg) toast(okMsg, 'ok'); return r; }
+  catch (e) { toast(e.message || String(e), 'err'); throw e; }
+}
+
+// ---------- Icônes (traits simples) ----------
+const ICONS = {
+  home: '<path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v10h14V10"/>',
+  pos: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>',
+  sale: '<path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 7h6M9 11h6M9 15h4"/>',
+  purchase: '<path d="M3 4h2l2.4 11h11.2L21 7H7"/><circle cx="9" cy="19.5" r="1.5"/><circle cx="18" cy="19.5" r="1.5"/>',
+  box: '<path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/>',
+  stock: '<path d="M4 7h16M4 12h16M4 17h10"/>',
+  users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.7-3.6 3.3-5.5 6.5-5.5s5.8 1.9 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.8c1.8.8 3 2.5 3.5 5.2"/>',
+  contacts: '<rect x="4" y="3" width="16" height="18" rx="2"/><circle cx="12" cy="10" r="3"/><path d="M7.5 17.5c.8-2 2.4-3 4.5-3s3.7 1 4.5 3"/>',
+  expense: '<rect x="2.5" y="6" width="19" height="13" rx="2"/><path d="M2.5 10h19M7 15h3"/>',
+  report: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+  settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+  logout: '<path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h11"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  print: '<path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M6 14h12v7H6z"/>',
+  cash: '<rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="3"/>',
+  alert: '<path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17.5v.5"/>',
+  undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/>',
+  trend: '<path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/>',
+  wallet: '<path d="M3 7h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M3 7l12-4v4M16 13.5h2"/>',
+};
+const icon = (n, cls = 'ico') => `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICONS[n] || ''}</svg>`;
+
+// ---------- Modales ----------
+function modal({ title, body, foot = '', wide = false, onMount }) {
+  const root = $('#modal-root');
+  const wrap = document.createElement('div');
+  wrap.className = 'overlay';
+  wrap.innerHTML = `<div class="modal ${wide ? 'wide' : ''}" role="dialog">
+    <div class="modal-h"><h2>${esc(title)}</h2><button class="close-x" data-close aria-label="Fermer">×</button></div>
+    <div class="modal-b">${body}</div>${foot ? `<div class="modal-f">${foot}</div>` : ''}</div>`;
+  root.appendChild(wrap);
+  const close = () => { wrap.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = (e) => { if (e.key === 'Escape' && root.lastElementChild === wrap) close(); };
+  document.addEventListener('keydown', onKey);
+  wrap.addEventListener('mousedown', (e) => { if (e.target === wrap) close(); });
+  $$('[data-close]', wrap).forEach((b) => b.addEventListener('click', close));
+  const m = { el: wrap, close };
+  if (onMount) onMount(wrap, close);
+  const first = $('input:not([type=hidden]), select, textarea', wrap);
+  if (first) setTimeout(() => first.focus(), 30);
+  return m;
+}
+function confirmBox(message, okLabel = 'Confirmer', danger = true) {
+  return new Promise((resolve) => {
+    let done = false;
+    modal({
+      title: 'Confirmation', body: `<p style="margin:0">${esc(message)}</p>`,
+      foot: `<button class="btn" data-close>Annuler</button><button class="btn ${danger ? 'danger' : 'primary'}" data-ok>${esc(okLabel)}</button>`,
+      onMount: (el, close) => {
+        $('[data-ok]', el).addEventListener('click', () => { done = true; close(); resolve(true); });
+        new MutationObserver((_, obs) => { if (!el.isConnected) { obs.disconnect(); if (!done) resolve(false); } }).observe($('#modal-root'), { childList: true });
+      },
+    });
+  });
+}
+function formData(root) {
+  const o = {};
+  $$('[name]', root).forEach((el) => {
+    if (el.type === 'checkbox') o[el.name] = el.checked;
+    else if (el.type === 'number') o[el.name] = el.value === '' ? '' : Number(el.value);
+    else o[el.name] = el.value;
+  });
+  return o;
+}
+
+// ---------- Navigation ----------
+const NAV = [
+  { group: 'Principal' },
+  { id: 'dashboard', label: 'Tableau de bord', icon: 'home' },
+  { id: 'pos', label: 'Caisse (POS)', icon: 'pos' },
+  { group: 'Commercial' },
+  { id: 'sales', label: 'Ventes', icon: 'sale' },
+  { id: 'purchases', label: 'Achats', icon: 'purchase' },
+  { id: 'contacts', label: 'Clients & fournisseurs', icon: 'contacts' },
+  { group: 'Stock' },
+  { id: 'products', label: 'Produits', icon: 'box', badge: () => S.lowStock },
+  { id: 'stock', label: 'Mouvements de stock', icon: 'stock' },
+  { group: 'Gestion' },
+  { id: 'expenses', label: 'Dépenses', icon: 'expense' },
+  { id: 'reports', label: 'Rapports', icon: 'report' },
+  { id: 'users', label: 'Utilisateurs', icon: 'users', admin: true },
+  { id: 'settings', label: 'Paramètres', icon: 'settings' },
+];
+const VIEWS = {}; // rempli par views.js
+
+function currentRoute() {
+  const h = location.hash.replace(/^#\/?/, '');
+  const [id, ...rest] = h.split('/');
+  return { id: id || 'dashboard', params: rest };
+}
+function go(id) { location.hash = `#/${id}`; }
+
+function renderShell() {
+  const { id } = currentRoute();
+  const initials = (S.user.name || '?').split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+  $('#app').innerHTML = `
+  <div class="shell">
+    <aside class="side">
+      <div class="brand"><div class="brand-mark">S</div><div><div class="brand-name">SikaGest</div><div class="brand-sub">${esc(S.settings.company_name)}</div></div></div>
+      <nav class="nav">${NAV.filter((n) => !n.admin || isAdmin()).map((n) => n.group ? `<div class="nav-group">${n.group}</div>` :
+        `<a href="#/${n.id}" class="${n.id === id ? 'active' : ''}">${icon(n.icon)}<span>${n.label}</span>${n.badge && n.badge() ? `<span class="badge">${n.badge()}</span>` : ''}</a>`).join('')}</nav>
+      <div class="side-foot"><div class="avatar">${esc(initials)}</div>
+        <div class="who"><b>${esc(S.user.name)}</b><span>${S.user.role === 'admin' ? 'Administrateur' : 'Vendeur'}</span></div>
+        <button class="icon-btn" id="logout" title="Se déconnecter">${icon('logout')}</button></div>
+    </aside>
+    <main class="main">
+      <header class="topbar"><h1 id="page-title"></h1><span class="crumb" id="page-crumb"></span><div class="spacer"></div>
+        <span id="update-slot"></span><div id="page-actions" class="toolbar" style="margin:0"></div></header>
+      <section class="content" id="content"></section>
+    </main>
+  </div>`;
+  $('#logout').addEventListener('click', async () => { await API.call('auth.logout'); S.user = null; boot(); });
+  renderUpdatePill();
+}
+
+function setPage(title, crumb = '', actions = '') {
+  $('#page-title').textContent = title;
+  $('#page-crumb').textContent = crumb;
+  $('#page-actions').innerHTML = actions;
+  document.title = `${title} — SikaGest`;
+}
+
+async function refreshLowStock() {
+  try { S.lowStock = (await API.call('reports.summary', { from: today(), to: today() })).lowStock; } catch (e) { S.lowStock = 0; }
+}
+
+async function route() {
+  if (!S.user) return;
+  const { id, params } = currentRoute();
+  const view = VIEWS[id] || VIEWS.dashboard;
+  if (NAV.find((n) => n.id === id && n.admin) && !isAdmin()) return go('dashboard');
+  await refreshLowStock();
+  renderShell();
+  const c = $('#content');
+  c.innerHTML = '';
+  c.style.padding = id === 'pos' ? '16px 20px 20px' : '';
+  try { await view(c, params); } catch (e) { c.innerHTML = `<div class="err-box">${esc(e.message)}</div>`; }
+}
+window.addEventListener('hashchange', route);
+
+// ---------- Mises à jour ----------
+function renderUpdatePill() {
+  const slot = $('#update-slot');
+  if (!slot) return;
+  const u = S.update;
+  if (!u) { slot.innerHTML = ''; return; }
+  if (u.state === 'downloading') slot.innerHTML = `<span class="update-pill">Téléchargement de la mise à jour ${u.version || ''}… ${u.percent || 0} %</span>`;
+  else if (u.state === 'downloaded') slot.innerHTML = `<button class="update-pill ready" id="upd-go">Mise à jour ${esc(u.version)} prête — redémarrer</button>`;
+  else if (u.state === 'available-portable') slot.innerHTML = `<button class="update-pill ready" id="upd-go">Nouvelle version ${esc(u.version)} disponible</button>`;
+  else slot.innerHTML = '';
+  const b = $('#upd-go');
+  if (b) b.addEventListener('click', () => window.sika && window.sika.installUpdate());
+}
+
+// ---------- Connexion / premier lancement ----------
+function authLayout(inner) {
+  $('#app').innerHTML = `<div class="auth">
+    <div class="auth-art"><div class="brand" style="padding:0"><div class="brand-mark">S</div><div class="brand-name" style="font-size:20px">SikaGest</div></div>
+      <div><h2>Gérez votre commerce <em>comme un pro.</em></h2>
+      <p>Caisse, ventes, achats, stock, clients et rapports : tout au même endroit, même sans connexion Internet.</p></div>
+      <div style="color:var(--side-ink-2);font-size:12.5px">Version ${esc(S.info.version)}${S.info.portable ? ' · portable' : ''}</div><div class="rings"></div></div>
+    <div class="auth-form"><form class="auth-box" id="auth-form" autocomplete="off">${inner}</form></div></div>`;
+}
+function showSetup() {
+  authLayout(`<h1>Bienvenue 👋</h1><p class="hint">Créez le compte administrateur pour commencer.</p>
+    <div class="field"><label>Nom de votre entreprise</label><input class="input" name="company_name" placeholder="Ex. : Boutique Awa" required></div>
+    <div class="field"><label>Votre nom</label><input class="input" name="name" required></div>
+    <div class="field"><label>Identifiant de connexion</label><input class="input" name="username" value="admin" required></div>
+    <div class="field"><label>Mot de passe (4 caractères min.)</label><input class="input" type="password" name="password" required></div>
+    <div id="auth-err"></div><button class="btn primary lg" type="submit">Créer et commencer</button>`);
+  $('#auth-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try { S.user = await API.call('auth.setup', formData(e.target)); start(); }
+    catch (err) { $('#auth-err').innerHTML = `<div class="err-box">${esc(err.message)}</div>`; }
+  });
+}
+function showLogin() {
+  authLayout(`<h1>Connexion</h1><p class="hint">${esc(S.settings.company_name)}</p>
+    <div class="field"><label>Identifiant</label><input class="input" name="username" required></div>
+    <div class="field"><label>Mot de passe</label><input class="input" type="password" name="password" required></div>
+    <div id="auth-err"></div><button class="btn primary lg" type="submit">Se connecter</button>`);
+  $('#auth-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try { S.user = await API.call('auth.login', formData(e.target)); start(); }
+    catch (err) { $('#auth-err').innerHTML = `<div class="err-box">${esc(err.message)}</div>`; }
+  });
+}
+async function start() {
+  S.settings = await API.call('settings.get');
+  if (!location.hash) location.hash = '#/dashboard';
+  route();
+}
+async function boot() {
+  if (window.sika) {
+    S.info = await window.sika.info();
+    window.sika.onUpdate((u) => { S.update = u; renderUpdatePill(); });
+  }
+  S.settings = await API.call('settings.get');
+  const st = await API.call('auth.status');
+  if (st.needsSetup) return showSetup();
+  if (st.user) { S.user = st.user; return start(); }
+  showLogin();
+}
+
+// ---------- Impression : facture A4 et ticket de caisse ----------
+function printHtml(html, format) {
+  let style = $('#page-style');
+  if (!style) { style = document.createElement('style'); style.id = 'page-style'; document.head.appendChild(style); }
+  style.textContent = format === 'ticket' ? '@page { size: 80mm auto; margin: 3mm; }' : '@page { size: A4; margin: 14mm; }';
+  $('#print-area').innerHTML = html;
+  setTimeout(() => window.print(), 50);
+}
+function printDoc(doc, kind = 'vente', format = null) {
+  const s = S.settings;
+  format = format || (kind === 'vente' && doc.source === 'pos' ? (s.ticket_format || 'ticket') : 'a4');
+  const partner = kind === 'vente' ? (doc.client || 'Client comptoir') : (doc.supplier || '—');
+  const lines = doc.items.map((i) => ({ name: i.name, qty: i.qty, price: kind === 'vente' ? i.price : i.cost }));
+  const net = doc.total - (doc.returned || 0);
+  if (format === 'ticket') {
+    printHtml(`<div class="ticket"><div class="c"><b style="font-size:14px">${esc(s.company_name)}</b><br>${esc(s.company_address)}<br>${esc(s.company_phone)}</div><hr>
+      <div>${esc(doc.ref)} — ${fdate(doc.date)}<br>Caissier : ${esc(doc.user || '')}<br>Client : ${esc(partner)}</div><hr>
+      <table>${lines.map((l) => `<tr><td colspan="2">${esc(l.name)}</td></tr><tr><td>${qtyf(l.qty)} x ${nf.format(l.price)}</td><td class="r">${nf.format(l.qty * l.price)}</td></tr>`).join('')}</table><hr>
+      <table>${doc.discount ? `<tr><td>Sous-total</td><td class="r">${nf.format(doc.subtotal)}</td></tr><tr><td>Remise</td><td class="r">-${nf.format(doc.discount)}</td></tr>` : ''}
+      <tr><td><b>TOTAL</b></td><td class="r"><b>${money(doc.total)}</b></td></tr>
+      ${doc.returned ? `<tr><td>Retours</td><td class="r">-${nf.format(doc.returned)}</td></tr>` : ''}
+      <tr><td>Payé</td><td class="r">${nf.format(doc.paid)}</td></tr>
+      ${doc.received ? `<tr><td>Reçu</td><td class="r">${nf.format(doc.received)}</td></tr><tr><td>Monnaie rendue</td><td class="r">${nf.format(Math.max(0, doc.received - doc.paid))}</td></tr>` : ''}
+      ${net - doc.paid > 0.5 ? `<tr><td>Reste à payer</td><td class="r">${nf.format(net - doc.paid)}</td></tr>` : ''}</table><hr>
+      <div class="c">${esc(s.invoice_footer)}</div></div>`, 'ticket');
+    return;
+  }
+  const title = kind === 'vente' ? 'FACTURE' : 'BON D\'ACHAT';
+  printHtml(`<div class="inv"><div class="head"><div><h1>${esc(s.company_name)}</h1>${esc(s.company_address)}<br>${esc(s.company_phone)}<br>${esc(s.company_email)}</div>
+    <div style="text-align:right"><h1>${title}</h1>N° ${esc(doc.ref)}<br>Date : ${fdate(doc.date, false)}</div></div>
+    <div style="margin-bottom:16px"><b>${kind === 'vente' ? 'Client' : 'Fournisseur'} :</b> ${esc(partner)}${doc.client_phone ? ' — ' + esc(doc.client_phone) : ''}${doc.client_address ? '<br>' + esc(doc.client_address) : ''}</div>
+    <table><thead><tr><th>Désignation</th><th class="r">Qté</th><th class="r">Prix unitaire</th><th class="r">Montant</th></tr></thead>
+    <tbody>${lines.map((l) => `<tr><td>${esc(l.name)}</td><td class="r">${qtyf(l.qty)}</td><td class="r">${nf.format(l.price)}</td><td class="r">${nf.format(l.qty * l.price)}</td></tr>`).join('')}</tbody></table>
+    <div class="tot">${doc.discount ? `<div><span>Sous-total</span><span>${money(doc.subtotal)}</span></div><div><span>Remise</span><span>-${money(doc.discount)}</span></div>` : ''}
+      <div class="g"><span>Total</span><span>${money(doc.total)}</span></div>
+      ${doc.returned ? `<div><span>Retours</span><span>-${money(doc.returned)}</span></div>` : ''}
+      <div><span>Déjà payé</span><span>${money(doc.paid)}</span></div><div><span>Reste à payer</span><span>${money(Math.max(0, net - doc.paid))}</span></div></div>
+    ${doc.note ? `<p><b>Note :</b> ${esc(doc.note)}</p>` : ''}
+    <p style="margin-top:40px;text-align:center;color:#555">${esc(s.invoice_footer)}</p></div>`, 'a4');
+}
+
+document.addEventListener('DOMContentLoaded', () => boot().catch((e) => { document.body.innerHTML = `<pre style="padding:20px">${esc(e.message)}</pre>`; }));

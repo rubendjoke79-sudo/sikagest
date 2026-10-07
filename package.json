@@ -1,0 +1,26 @@
+{
+  "name": "sikagest",
+  "productName": "SikaGest",
+  "version": "1.0.0",
+  "description": "Logiciel de gestion commerciale : caisse, ventes, achats, stock, clients et rapports.",
+  "author": "SikaGest",
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "preview": "node dev/server.js",
+    "build:win": "bash tools/build-windows.sh"
+  },
+  "updates": {
+    "provider": "github",
+    "owner": "rubendjoke79-sudo",
+    "repo": "sikagest"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.2.0"
+  },
+  "devDependencies": {
+    "electron": "37.2.0"
+  }
+}
