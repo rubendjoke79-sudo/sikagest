@@ -115,6 +115,42 @@ function createStore(file, opts = {}) {
   const setting = (k) => { const r = q.get('SELECT value FROM settings WHERE key=?', k); return r ? r.value : null; };
   const setSetting = (k, v) => q.run('INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)', k, v);
 
+  // ---------- Licence : essai gratuit puis clé d'activation ----------
+  const TRIAL_DAYS = 14;
+  const dayStr = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const addDays = (ds, n) => { const d = new Date(`${ds}T12:00:00`); d.setDate(d.getDate() + n); return dayStr(d); };
+  const diffDays = (a, b) => Math.round((new Date(`${a}T12:00:00`) - new Date(`${b}T12:00:00`)) / 86400000);
+  q.run('INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)', 'trial_start', dayStr(new Date()));
+  function effectiveToday() {
+    // protège contre le recul de l'horloge du PC
+    const real = dayStr(new Date());
+    const last = setting('last_seen_day');
+    const eff = last && last > real ? last : real;
+    if (eff !== last) setSetting('last_seen_day', eff);
+    return eff;
+  }
+  function licenseStatus() {
+    const today = effectiveToday();
+    const trialEnd = addDays(setting('trial_start'), TRIAL_DAYS);
+    const key = setting('license_key');
+    const base = { installCode: recovery.formatInstallId(setting('install_id')), trialDays: TRIAL_DAYS };
+    if (key) {
+      const lic = recovery.parseLicense(key, setting('install_id'));
+      if (lic.ok) {
+        const left = lic.lifetime ? null : diffDays(lic.expires, today);
+        if (lic.lifetime || left >= 0) {
+          return { ...base, state: lic.plan === 6 ? 'trial' : 'active', plan: lic.planName, lifetime: lic.lifetime, expires: lic.expires, daysLeft: left };
+        }
+        if (lic.plan !== 6) return { ...base, state: 'expired', plan: lic.planName, expires: lic.expires, daysLeft: left, reason: 'licence' };
+      }
+    }
+    const left = diffDays(trialEnd, today);
+    if (left >= 0) return { ...base, state: 'trial', plan: 'Essai gratuit', expires: trialEnd, daysLeft: left };
+    return { ...base, state: 'expired', plan: 'Essai gratuit', expires: trialEnd, daysLeft: left, reason: 'essai' };
+  }
+  const LICENSED_ACTIONS = new Set(['sales.create', 'sales.return', 'purchases.create', 'purchases.return', 'stock.adjust',
+    'products.save', 'contacts.save', 'expenses.save', 'categories.save', 'users.save']);
+
   let session = null; // utilisateur connecté
   let recoveryOk = false; // déblocage validé
   let failedUnlocks = 0;
@@ -156,6 +192,17 @@ function createStore(file, opts = {}) {
       return session;
     },
     'auth.logout'() { session = null; return true; },
+
+    // ---------- Licence ----------
+    'license.status'() { return licenseStatus(); },
+    'license.activate'({ key }) {
+      const lic = recovery.parseLicense(key, setting('install_id'));
+      if (!lic.ok) fail(lic.error);
+      if (!lic.lifetime && lic.expires < effectiveToday()) fail(`Cette clé a expiré le ${lic.expires.split('-').reverse().join('/')}.`);
+      setSetting('license_key', recovery.b32encode(recovery.b32decode(key)));
+      setSetting('license_activated', now());
+      return licenseStatus();
+    },
 
     // ---------- Mot de passe oublié : code de demande / code de déblocage ----------
     'recovery.request'() {
@@ -229,11 +276,12 @@ function createStore(file, opts = {}) {
       const out = {};
       for (const r of q.all('SELECT key,value FROM settings')) if (r.key !== 'recovery_pending') out[r.key] = r.value;
       out.install_code = recovery.formatInstallId(out.install_id);
+      delete out.license_key;
       return out;
     },
     'settings.save'(values) {
       needAdmin();
-      tx(() => { for (const [k, v] of Object.entries(values || {})) q.run('INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)', k, String(v ?? '')); });
+      tx(() => { for (const [k, v] of Object.entries(values || {})) if (k in DEFAULT_SETTINGS) q.run('INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)', k, String(v ?? '')); });
       return api['settings.get']();
     },
 
@@ -626,11 +674,14 @@ function createStore(file, opts = {}) {
   function call(method, args) {
     const fn = api[method];
     if (!fn) throw new AppError(`Action inconnue : ${method}`);
+    if (LICENSED_ACTIONS.has(method) && licenseStatus().state === 'expired') {
+      throw new AppError('LICENCE: Votre période d\'essai ou votre licence est terminée. Activez SikaGest pour continuer à enregistrer. Vos données restent consultables.');
+    }
     return fn(args || {});
   }
   function close() { try { db.close(); } catch (e) { /* déjà fermé */ } }
   function checkpoint() { try { db.exec('PRAGMA wal_checkpoint(TRUNCATE)'); } catch (e) { /* rien */ } }
-  return { call, close, checkpoint, file, AppError, driver: db.__driver || 'node:sqlite' };
+  return { call, close, checkpoint, file, AppError, driver: db.__driver || 'node:sqlite', licenseStatus };
 }
 
 module.exports = { createStore, AppError };

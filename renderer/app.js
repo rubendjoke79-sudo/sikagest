@@ -13,7 +13,7 @@ const API = {
   },
 };
 
-const S = { user: null, settings: {}, info: { version: '1.0.0', portable: false }, update: null, lowStock: 0 };
+const S = { user: null, settings: {}, info: { version: '1.0.0', portable: false, vendor: {} }, update: null, lowStock: 0, license: null };
 
 // ---------- Utilitaires ----------
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -50,7 +50,11 @@ function toast(msg, type = '') {
 }
 async function run(fn, okMsg) {
   try { const r = await fn(); if (okMsg) toast(okMsg, 'ok'); return r; }
-  catch (e) { toast(e.message || String(e), 'err'); throw e; }
+  catch (e) {
+    const m = e.message || String(e);
+    if (m.startsWith('LICENCE:')) licenseModal(m.slice(8).trim()); else toast(m, 'err');
+    throw e;
+  }
 }
 
 // ---------- Icônes (traits simples) ----------
@@ -73,6 +77,8 @@ const ICONS = {
   alert: '<path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17.5v.5"/>',
   undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/>',
   trend: '<path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/>',
+  key: '<circle cx="8" cy="15" r="4"/><path d="M11 12 20 3M17 6l3 3M14 9l2 2"/>',
+  whatsapp: '<path d="M3 21l1.6-4.6A8.5 8.5 0 1 1 8 19.7z"/><path d="M9 9.5c.3 2 2.2 4.2 4.6 4.8l1.2-1.2 2 1-.4 1.6c-3.6.4-7.6-3.4-7.4-7l1.6-.4 1 2z"/>',
   wallet: '<path d="M3 7h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M3 7l12-4v4M16 13.5h2"/>',
 };
 const icon = (n, cls = 'ico') => `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICONS[n] || ''}</svg>`;
@@ -136,6 +142,7 @@ const NAV = [
   { id: 'expenses', label: 'Dépenses', icon: 'expense' },
   { id: 'reports', label: 'Rapports', icon: 'report' },
   { id: 'users', label: 'Utilisateurs', icon: 'users', admin: true },
+  { id: 'license', label: 'Licence', icon: 'key', badge: () => (S.license && S.license.state === 'expired' ? '!' : 0) },
   { id: 'settings', label: 'Paramètres', icon: 'settings' },
 ];
 const VIEWS = {}; // rempli par views.js
@@ -163,6 +170,7 @@ function renderShell() {
     <main class="main">
       <header class="topbar"><h1 id="page-title"></h1><span class="crumb" id="page-crumb"></span><div class="spacer"></div>
         <span id="update-slot"></span><div id="page-actions" class="toolbar" style="margin:0"></div></header>
+      <div id="lic-banner"></div>
       <section class="content" id="content"></section>
     </main>
   </div>`;
@@ -187,13 +195,52 @@ async function route() {
   const view = VIEWS[id] || VIEWS.dashboard;
   if (NAV.find((n) => n.id === id && n.admin) && !isAdmin()) return go('dashboard');
   await refreshLowStock();
+  try { S.license = await API.call('license.status'); } catch (e) { S.license = null; }
+  $('#modal-root').innerHTML = '';
   renderShell();
+  renderLicenseBanner();
   const c = $('#content');
   c.innerHTML = '';
   c.style.padding = id === 'pos' ? '16px 20px 20px' : '';
   try { await view(c, params); } catch (e) { c.innerHTML = `<div class="err-box">${esc(e.message)}</div>`; }
 }
 window.addEventListener('hashchange', route);
+
+// ---------- Licence ----------
+const vendor = () => S.info.vendor || {};
+const fdays = (n) => `${n} jour${Math.abs(n) > 1 ? 's' : ''}`;
+function waUrl(text) {
+  let n = String(vendor().whatsapp || '').replace(/[^0-9]/g, '');
+  if (!n) return null;
+  if (n.length === 10) n = '225' + n;
+  return `https://wa.me/${n}?text=${encodeURIComponent(text)}`;
+}
+function licenseRequestText() {
+  const L = S.license || {};
+  return `Bonjour, je souhaite activer SikaGest.\nEntreprise : ${S.settings.company_name || ''}\nTéléphone : ${S.settings.company_phone || ''}\nCode d'installation : ${L.installCode || ''}\nFormule souhaitée : `;
+}
+function renderLicenseBanner() {
+  const el = $('#lic-banner');
+  const L = S.license;
+  if (!el || !L) return;
+  let html = '';
+  if (L.state === 'expired') {
+    html = `<div class="lic-bar bad">${icon('alert')}<span><b>${L.reason === 'licence' ? 'Votre licence a expiré' : 'Votre essai gratuit est terminé'}.</b> Vous pouvez consulter vos données, mais plus enregistrer de ventes ni d'achats.</span><a class="btn sm primary" href="#/license">Activer SikaGest</a></div>`;
+  } else if (L.state === 'trial') {
+    html = `<div class="lic-bar ${L.daysLeft <= 3 ? 'warn' : 'info'}">${icon('key')}<span>${L.plan === 'Essai gratuit' ? 'Essai gratuit' : esc(L.plan)} : <b>${L.daysLeft === 0 ? 'dernier jour' : fdays(L.daysLeft) + ' restant' + (L.daysLeft > 1 ? 's' : '')}</b>.</span><a class="btn sm" href="#/license">Acheter une licence</a></div>`;
+  } else if (L.state === 'active' && !L.lifetime && L.daysLeft <= 7) {
+    html = `<div class="lic-bar warn">${icon('key')}<span>Votre licence ${esc(L.plan)} expire dans <b>${fdays(L.daysLeft)}</b>.</span><a class="btn sm" href="#/license">Renouveler</a></div>`;
+  }
+  el.innerHTML = html;
+}
+function licenseModal(message) {
+  const wa = waUrl(licenseRequestText());
+  modal({
+    title: 'Activation nécessaire',
+    body: `<p style="margin-top:0">${esc(message)}</p><p style="color:var(--ink-2)">Votre code d'installation : <b style="font-family:ui-monospace,Consolas,monospace">${esc((S.license || {}).installCode || '')}</b></p>`,
+    foot: `<button class="btn" data-close>Fermer</button>${wa ? `<a class="btn" href="${wa}" target="_blank" rel="noopener">${icon('whatsapp')} Acheter par WhatsApp</a>` : ''}<a class="btn primary" href="#/license" data-close>J'ai une clé d'activation</a>`,
+  });
+}
 
 // ---------- Mises à jour ----------
 function renderUpdatePill() {

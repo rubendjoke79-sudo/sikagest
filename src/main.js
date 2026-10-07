@@ -46,7 +46,7 @@ app.whenReady().then(() => {
     catch (e) { return { ok: false, error: e instanceof AppError ? e.message : `Erreur interne : ${e.message}` }; }
   });
 
-  ipcMain.handle('app.info', () => ({ version: app.getVersion(), portable: !!PORTABLE_DIR, dataDir: DATA_DIR, engine: store.driver }));
+  ipcMain.handle('app.info', () => ({ vendor: require('../package.json').vendor || {}, version: app.getVersion(), portable: !!PORTABLE_DIR, dataDir: DATA_DIR, engine: store.driver }));
   ipcMain.handle('app.openDataDir', () => shell.openPath(DATA_DIR));
   ipcMain.handle('register.sync', () => register.sync());
 
@@ -96,7 +96,7 @@ app.whenReady().then(() => {
   createWindow();
   ensureDesktopShortcut();
   if (app.isPackaged || process.env.SIKAGEST_REGISTER === '1') {
-    register.init(() => store.call('settings.get'), { portable: !!PORTABLE_DIR });
+    register.init(() => store.call('settings.get'), { portable: !!PORTABLE_DIR, licenseFn: () => store.licenseStatus() });
   }
 });
 

@@ -746,3 +746,45 @@ function exportCsv(name, head, rows) {
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
+
+// ======================================================================
+// LICENCE
+// ======================================================================
+VIEWS.license = async (c) => {
+  setPage('Licence', 'Activation de SikaGest');
+  const L = await API.call('license.status');
+  S.license = L; renderLicenseBanner();
+  const v = vendor();
+  const wa = waUrl(licenseRequestText());
+  const stateTag = { trial: '<span class="tag info">Essai</span>', active: '<span class="tag ok">Activé</span>', expired: '<span class="tag bad">Expiré</span>' }[L.state];
+  const detail = L.state === 'active'
+    ? (L.lifetime ? 'Licence à vie : aucune date d\'expiration.' : `Valable jusqu'au <b>${fdate(L.expires, false)}</b> (${fdays(L.daysLeft)}).`)
+    : L.state === 'trial' ? `Se termine le <b>${fdate(L.expires, false)}</b> (${L.daysLeft === 0 ? 'aujourd\'hui' : 'dans ' + fdays(L.daysLeft)}).`
+    : `Terminé le <b>${fdate(L.expires, false)}</b>. Vos données sont conservées et consultables. Activez SikaGest pour enregistrer à nouveau.`;
+  c.innerHTML = `<div class="dash-grid" style="grid-template-columns:1fr 1fr">
+    <div class="card"><div class="card-b">
+      <div class="lic-hero"><div class="kpi" style="box-shadow:none;border:0;padding:0"><div class="k-ico ${L.state === 'active' ? 'c-ok' : L.state === 'trial' ? 'c-info' : 'c-bad'}">${icon('key', '')}</div></div>
+        <div><div class="big">${esc(L.plan)} ${stateTag}</div><div style="color:var(--ink-2)">${detail}</div></div></div>
+      <div class="section-title">Votre code d'installation</div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span class="code-box" id="ic">${esc(L.installCode)}</span><button class="btn" id="ic-copy">Copier</button></div>
+      <p style="color:var(--ink-3);font-size:12.5px">Ce code identifie cet ordinateur. Votre fournisseur en a besoin pour fabriquer votre clé.</p>
+    </div></div>
+    <div class="card"><div class="card-h"><h3>${L.state === 'active' ? 'Renouveler ou changer de formule' : 'Acheter une licence'}</h3></div><div class="card-b">
+      <ol class="steps"><li>Contactez votre fournisseur${v.name ? ` <b>${esc(v.name)}</b>` : ''} et donnez-lui votre <b>code d'installation</b>.</li>
+        <li>Payez la formule choisie (Mobile Money, Wave, espèces…).</li><li>Vous recevez une <b>clé d'activation</b> : collez-la ci-dessous.</li></ol>
+      <div class="toolbar" style="margin:14px 0 0">${wa ? `<a class="btn primary" href="${wa}" target="_blank" rel="noopener">${icon('whatsapp')} Contacter par WhatsApp</a>` : ''}${v.site ? `<a class="btn" href="${esc(v.site)}" target="_blank" rel="noopener">Voir les tarifs</a>` : ''}</div>
+    </div></div></div>
+    <div class="card"><div class="card-h"><h3>Activer avec une clé</h3></div><div class="card-b">
+      <textarea class="input" id="lk" rows="3" style="width:100%;font-family:ui-monospace,Consolas,monospace" placeholder="Collez ici la clé d'activation reçue"></textarea>
+      <div style="margin-top:12px;display:flex;gap:10px;align-items:center"><button class="btn primary" id="lk-ok">${icon('key')} Activer</button><span id="lk-msg"></span></div>
+    </div></div>`;
+  $('#ic-copy').addEventListener('click', async () => { try { await navigator.clipboard.writeText(L.installCode); toast('Code copié', 'ok'); } catch (e) { toast(L.installCode); } });
+  $('#lk-ok').addEventListener('click', async () => {
+    try {
+      S.license = await API.call('license.activate', { key: $('#lk').value });
+      toast(`SikaGest est activé : ${S.license.plan}${S.license.lifetime ? '' : ' jusqu\'au ' + fdate(S.license.expires, false)}.`, 'ok');
+      if (window.sika && window.sika.syncNow) window.sika.syncNow();
+      route();
+    } catch (e) { $('#lk-msg').innerHTML = `<span style="color:var(--bad)">${esc(e.message)}</span>`; }
+  });
+};

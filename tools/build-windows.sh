@@ -38,7 +38,7 @@ cp -r "$ROOT/src" "$ROOT/renderer" "$APP/"
 cp "$ROOT/build/icon.png" "$APP/build/"
 node -e "
   const p=require('$ROOT/package.json');
-  const out={name:p.name,productName:p.productName,version:p.version,description:p.description,main:p.main,updates:p.updates,server:p.server};
+  const out={name:p.name,productName:p.productName,version:p.version,description:p.description,main:p.main,updates:p.updates,server:p.server,vendor:p.vendor};
   require('fs').writeFileSync('$APP/package.json', JSON.stringify(out,null,2));"
 cp -r "$CACHE/bs3src/lib" "$CACHE/bs3src/package.json" "$CACHE/bs3src/LICENSE" "$APP/node_modules/better-sqlite3/"
 tar -xzf "$CACHE/dl/bs3-win.tar.gz" -C "$CACHE" build/Release/better_sqlite3.node
@@ -58,6 +58,10 @@ echo "Ce fichier indique que SikaGest fonctionne en mode portable : les données
 printf 'SikaGest %s - version portable\r\n\r\n1. Copiez ce dossier sur une clé USB (ou n importe où).\r\n2. Double-cliquez sur SikaGest.exe.\r\n\r\nVos données sont enregistrées dans le dossier SikaGest-donnees, juste à côté.\r\nPour changer d ordinateur, emportez simplement tout le dossier.\r\n' "$VERSION" > "$PORT/LISEZ-MOI.txt"
 rm -f "$OUT/$APPNAME-Portable-$VERSION.zip"
 (cd "$STAGE/portable" && "$CACHE/7z/7zz" a -tzip -mx=7 "$OUT/$APPNAME-Portable-$VERSION.zip" "$APPNAME" >/dev/null)
+
+# Copies à nom fixe pour les liens « dernière version » du site
+cp "$INSTALLER" "$OUT/$APPNAME-Installation.exe"
+cp "$OUT/$APPNAME-Portable-$VERSION.zip" "$OUT/$APPNAME-Portable.zip"
 
 echo "✔ Terminé :"
 ls -lh "$OUT"

@@ -40,10 +40,10 @@ td{padding:10px;border-bottom:1px solid var(--line);vertical-align:top}tr:last-c
 dialog{border:0;border-radius:12px;padding:0;width:min(560px,94vw);background:var(--surface);color:var(--ink)}
 dialog::backdrop{background:rgba(0,0,0,.45)}dialog .card{margin:0;border:0}
 </style>
-<style>@media (max-width:700px){.top span{display:none} th:nth-child(5),td:nth-child(5),th:nth-child(6),td:nth-child(6){display:none}}</style>
+<style>@media (max-width:700px){.top span{display:none} th:nth-child(6),td:nth-child(6),th:nth-child(7),td:nth-child(7){display:none}}</style>
 </head>
 <body>
-<div class="top"><div class="mark">S</div><div><b>SikaGest Suivi</b><br><span>Vos clients et leurs installations, en direct</span></div><div class="sp"></div></div>
+<div class="top"><div class="mark">S</div><div><b>SikaGest Suivi</b><br><span>Vos clients, leurs licences et leurs installations, en direct</span></div><div class="sp"></div></div>
 <div class="wrap"><div id="view"></div></div>
 <script>
 'use strict';
@@ -65,7 +65,7 @@ const nowStr = () => { const d = new Date(); return d.toLocaleDateString('fr-FR'
 // ---------- Installations en direct (serveur en ligne) ----------
 const SERVER = { url: 'https://amyeajnxdeeynxdveahu.supabase.co', key: 'sb_publishable_ruU1tjtP1wTh7IpIaA60FA_UjKPK7IQ' };
 const AUTH_KEY = 'sikagest-admin-auth-v1';
-const LIVE = { rows: null, q: '', city: '' };
+const LIVE = { rows: null, q: '', city: '', lic: '' };
 let liveTimer = null;
 function getAuth() { try { return JSON.parse(localStorage.getItem(AUTH_KEY) || 'null'); } catch (e) { return null; } }
 function setAuth(a) { try { a ? localStorage.setItem(AUTH_KEY, JSON.stringify(a)) : localStorage.removeItem(AUTH_KEY); } catch (e) { /* rien */ } }
@@ -108,18 +108,21 @@ async function viewLive() {
     <div class="card"><div class="row" style="margin-bottom:12px"><h2 style="flex:1">Vos clients SikaGest</h2>
       <input class="input" id="lq" placeholder="Nom, téléphone, quartier…" style="max-width:240px" value="${esc(LIVE.q)}">
       <select class="input" id="lc" style="max-width:180px"></select>
+      <select class="input" id="ll" style="max-width:190px"><option value="">Toutes les licences</option><option value="trial">En essai</option><option value="active">Payées (actives)</option><option value="soon">Expirent sous 15 jours</option><option value="expired">Expirées</option></select>
       <button class="btn" id="lcsv">Exporter (Excel)</button><button class="btn" id="lpw">Mot de passe</button><button class="btn" id="lout">Déconnexion</button></div>
-      <div class="tablewrap"><table><thead><tr><th>Entreprise</th><th>Gérant</th><th>Contact</th><th>Zone</th><th>Version</th><th>Installé</th><th>Activité récente</th><th></th></tr></thead><tbody id="ltb"></tbody></table></div>
+      <div class="tablewrap"><table><thead><tr><th>Entreprise</th><th>Gérant</th><th>Contact</th><th>Zone</th><th>Licence</th><th>Version</th><th>Installé</th><th>Activité récente</th><th></th></tr></thead><tbody id="ltb"></tbody></table></div>
       <p class="hint" style="margin:10px 0 0" id="lupd"></p></div>`;
   $('#lq').addEventListener('input', (e) => { LIVE.q = e.target.value; drawLive(); });
   $('#lc').addEventListener('change', (e) => { LIVE.city = e.target.value; drawLive(); });
+  $('#ll').value = LIVE.lic;
+  $('#ll').addEventListener('change', (e) => { LIVE.lic = e.target.value; drawLive(); });
   $('#lpw').addEventListener('click', changeServerPassword);
   $('#lout').addEventListener('click', () => { setAuth(null); LIVE.rows = null; render(); });
   $('#lcsv').addEventListener('click', () => {
     const rows = filteredLive();
     const cell = (v) => { const s = String(v ?? ''); return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
-    const csv = '﻿' + [['Entreprise', 'Gérant', 'Téléphone', 'E-mail', 'Ville', 'Quartier', 'Activité', 'Version', 'Installé le', 'Dernière activité', 'Identifiant', 'Notes'],
-      ...rows.map((r) => [r.shop, r.owner_name, r.phone, r.email, r.city, r.district, r.activity, r.app_version, (r.first_seen || '').slice(0, 10), new Date(r.last_seen).toLocaleString('fr-FR'), installCode(r.install_id), r.notes])].map((r) => r.map(cell).join(';')).join('\r\n');
+    const csv = '﻿' + [['Entreprise', 'Gérant', 'Téléphone', 'E-mail', 'Ville', 'Quartier', 'Activité', 'Licence', 'Expire le', 'Version', 'Installé le', 'Dernière activité', 'Identifiant', 'Notes'],
+      ...rows.map((r) => [r.shop, r.owner_name, r.phone, r.email, r.city, r.district, r.activity, r.license_state === 'active' ? (r.license_plan || 'Payée') : (r.license_state || ''), r.license_expires || '', r.app_version, (r.first_seen || '').slice(0, 10), new Date(r.last_seen).toLocaleString('fr-FR'), installCode(r.install_id), r.notes])].map((r) => r.map(cell).join(';')).join('\r\n');
     download(`clients-sikagest-${today()}.csv`, csv, 'text/csv');
   });
   await loadLive();
@@ -135,16 +138,27 @@ async function loadLive() {
   const week = rows.filter((r) => now - new Date(r.first_seen) < 7 * 864e5).length;
   const cities = {}; rows.forEach((r) => { const c = (r.city || 'Non renseignée').trim(); cities[c] = (cities[c] || 0) + 1; });
   const k = (label, val, sub = '') => `<div><div class="hint" style="margin:0;text-transform:uppercase;font-size:11.5px;letter-spacing:.6px;font-weight:600">${label}</div><div style="font-size:24px;font-weight:700">${val}</div><div class="hint" style="margin:0">${sub}</div></div>`;
-  $('#kpis').innerHTML = k('Installations', rows.length) + k('Actives maintenant', online, 'ouvertes il y a moins de 30 min') + k('Nouvelles cette semaine', week) +
+  const paid = rows.filter((r) => r.license_state === 'active').length, trials = rows.filter((r) => r.license_state === 'trial').length;
+  const soon = rows.filter((r) => licSoon(r)).length;
+  $('#kpis').innerHTML = k('Installations', rows.length, `${online} ouverte(s) en ce moment`) + k('Licences payées', paid, `${trials} en essai`) + k('À relancer', soon, 'expirent sous 15 jours ou expirées') + k('Nouvelles cette semaine', week) +
     k('Villes', Object.keys(cities).length, Object.entries(cities).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([c, n]) => `${esc(c)} (${n})`).join(', '));
   const sel = $('#lc');
   sel.innerHTML = '<option value="">Toutes les villes</option>' + Object.keys(cities).sort().map((c) => `<option ${c === LIVE.city ? 'selected' : ''}>${esc(c)}</option>`).join('');
   $('#lupd').textContent = `Mis à jour à ${new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} · actualisation automatique chaque minute.`;
   drawLive();
 }
+const daysTo = (iso) => Math.round((new Date(`${iso}T12:00:00`) - new Date(`${today()}T12:00:00`)) / 864e5);
+function licSoon(r) { return r.license_state === 'expired' || (r.license_expires && daysTo(r.license_expires) <= 15); }
+function licTag(r) {
+  if (!r.license_state) return '<span class="hint">—</span>';
+  const exp = r.license_expires ? `<br><span class="hint">${r.license_state === 'expired' ? 'depuis' : 'jusqu\'au'} ${new Date(r.license_expires + 'T12:00:00').toLocaleDateString('fr-FR')}</span>` : (r.license_state === 'active' ? '<br><span class="hint">à vie</span>' : '');
+  const style = r.license_state === 'active' ? (licSoon(r) ? 'background:#fff1d6;color:#b26a00' : 'background:var(--oksoft);color:var(--ok)') : r.license_state === 'trial' ? 'background:#e5eef8;color:#2563a8' : 'background:var(--badsoft);color:var(--bad)';
+  const label = r.license_state === 'active' ? esc(r.license_plan || 'Payée') : r.license_state === 'trial' ? 'Essai' : 'Expirée';
+  return `<span class="tag" style="${style}">${label}</span>${exp}`;
+}
 function filteredLive() {
   const q = LIVE.q.toLowerCase();
-  return (LIVE.rows || []).filter((r) => (!LIVE.city || (r.city || 'Non renseignée').trim() === LIVE.city) && (!q || [r.shop, r.owner_name, r.phone, r.city, r.district, r.activity, r.email, installCode(r.install_id)].join(' ').toLowerCase().includes(q)));
+  return (LIVE.rows || []).filter((r) => (!LIVE.lic || (LIVE.lic === 'soon' ? licSoon(r) : r.license_state === LIVE.lic)) && (!LIVE.city || (r.city || 'Non renseignée').trim() === LIVE.city) && (!q || [r.shop, r.owner_name, r.phone, r.city, r.district, r.activity, r.email, installCode(r.install_id)].join(' ').toLowerCase().includes(q)));
 }
 function drawLive() {
   if (!$('#ltb')) return;
@@ -156,11 +170,12 @@ function drawLive() {
       <td>${esc(r.owner_name || '')}</td>
       <td>${r.phone ? `${esc(r.phone)}<br><a href="${waLink(r.phone, `Bonjour ${r.owner_name || ''}, c'est votre fournisseur SikaGest.`)}" target="_blank" rel="noopener">WhatsApp</a> · <a href="tel:${esc(r.phone)}">Appeler</a>` : '<span class="hint">—</span>'}${r.email ? `<br><span class="hint">${esc(r.email)}</span>` : ''}</td>
       <td>${esc(r.city || '')}<br><span class="hint">${esc(r.district || '')}</span></td>
+      <td>${licTag(r)}</td>
       <td>${esc(r.app_version || '')}${r.portable ? '<br><span class="hint">portable</span>' : ''}</td>
       <td>${new Date(r.first_seen).toLocaleDateString('fr-FR')}</td>
       <td>${on ? '<span class="tag" style="background:var(--oksoft);color:var(--ok)">● En ligne</span>' : esc(ago(r.last_seen))}</td>
       <td><button class="btn sm" data-n="${r.install_id}">Notes</button></td></tr>`;
-  }).join('') || '<tr><td colspan="8" class="hint" style="text-align:center;padding:30px">Aucune installation pour le moment. Elles apparaîtront ici dès qu\'un client ouvre SikaGest avec Internet.</td></tr>';
+  }).join('') || '<tr><td colspan="9" class="hint" style="text-align:center;padding:30px">Aucune installation pour le moment. Elles apparaîtront ici dès qu\'un client ouvre SikaGest avec Internet.</td></tr>';
   document.querySelectorAll('[data-n]').forEach((b) => b.addEventListener('click', () => editNotes(b.dataset.n)));
 }
 function editNotes(id) {

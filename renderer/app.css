@@ -216,3 +216,16 @@ table.tbl { width: 100%; border-collapse: collapse; }
   .ticket .r { text-align: right; }
   .ticket hr { border: 0; border-top: 1px dashed #000; margin: 6px 0; }
 }
+
+/* ---------- Licence ---------- */
+.lic-bar { display: flex; align-items: center; gap: 10px; padding: 9px 28px; font-size: 13.5px; border-bottom: 1px solid var(--line); }
+.lic-bar .ico { width: 18px; height: 18px; flex: none; }
+.lic-bar span { flex: 1; }
+.lic-bar.info { background: var(--info-soft); color: var(--info); }
+.lic-bar.warn { background: var(--warn-soft); color: var(--warn); }
+.lic-bar.bad { background: var(--bad-soft); color: var(--bad); }
+.lic-hero { display: flex; gap: 18px; align-items: center; }
+.lic-hero .big { font-size: 22px; font-weight: 750; letter-spacing: -.3px; }
+.code-box { font: 600 20px/1 ui-monospace, Consolas, monospace; letter-spacing: 2px; background: var(--surface-2); border: 1px dashed var(--line-2); border-radius: 8px; padding: 12px 16px; display: inline-block; }
+.steps { margin: 0; padding-left: 20px; color: var(--ink-2); }
+.steps li { margin: 6px 0; }

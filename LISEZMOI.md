@@ -87,3 +87,18 @@ Un code ne marche qu'une fois, sur ce PC-là. Seul votre fichier SikaGest-Admin.
 À l'installation, le client indique son entreprise, son nom, son téléphone, sa ville, son quartier et son activité. Dès qu'il a Internet, SikaGest envoie ces coordonnées et la version installée au serveur du fournisseur (Supabase). Ensuite, le logiciel signale sa présence toutes les 20 minutes. Aucune donnée commerciale n'est envoyée.
 
 Dans **SikaGest-Admin.html → Installations en direct**, vous voyez tous vos clients avec un lien WhatsApp et Appeler, la zone, la version installée, la date d'installation et l'activité récente (« En ligne » si le logiciel est ouvert). Vous pouvez aussi ajouter vos notes et exporter la liste. Seul le compte rubendjoke79@gmail.com, une fois son e-mail confirmé, peut lire cette liste.
+
+## Vente : essai gratuit et licences
+
+- Chaque installation a **14 jours d'essai** (réglage `TRIAL_DAYS` dans `src/db.js`). Ensuite, les données restent consultables, mais il faut une licence pour enregistrer des ventes, des achats ou des produits.
+- Le client lit son **code d'installation** dans SikaGest, menu Licence, et vous l'envoie.
+- Dans **SikaGest-Admin.html → Vendre une licence**, vous choisissez la formule (mensuel, trimestriel, semestriel, annuel, à vie ou prolongation d'essai) et la date de fin, puis vous envoyez la clé par WhatsApp. L'historique des ventes et les montants encaissés sont gardés, et vous pouvez les exporter.
+- Une clé ne marche que sur l'ordinateur du client. Reculer l'horloge du PC ne prolonge pas l'essai.
+- Sur la page de suivi en ligne, vous voyez l'état de chaque licence (essai, payée, expirée) et la liste des clients à relancer.
+
+## Site vitrine
+
+- Site : https://rubendjoke79-sudo.github.io/sikagest/ (dossier `docs/`)
+- **Prix, numéro WhatsApp, e-mail** : modifiez seulement `docs/config.js`. Pour le numéro WhatsApp affiché dans le logiciel, modifiez aussi `vendor.whatsapp` dans `package.json`, puis publiez une nouvelle version.
+- Conditions de vente et données personnelles : `docs/conditions.html`. C'est un modèle à compléter (champs entre crochets) et à faire relire par un juriste.
+- Le bouton « Télécharger » pointe toujours vers la dernière version publiée.
