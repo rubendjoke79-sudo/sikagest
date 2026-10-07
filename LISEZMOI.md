@@ -39,11 +39,11 @@ Les données sont dans une base SQLite, dans `%APPDATA%\SikaGest` pour la versio
 
 1. Modifiez le code.
 2. Dans `package.json`, augmentez `"version"` (par ex. `1.0.0` → `1.0.1`).
-3. Envoyez les fichiers sur GitHub, puis créez la version : onglet **Releases → Draft a new release**, étiquette `v1.0.1`, **Publish release**.
+3. Envoyez les fichiers sur GitHub (branche `main`). La nouvelle version est publiée automatiquement. Vous pouvez aussi la publier vous-même : onglet **Actions → Publier une version → Run workflow**.
 4. GitHub fabrique automatiquement les nouveaux fichiers, en 5 minutes environ (onglet **Actions**).
 5. Chaque PC client qui se connecte à Internet télécharge la mise à jour en arrière-plan. Un bouton vert « Mise à jour prête — redémarrer » apparaît. Si personne ne clique, elle s'installe à la fermeture du logiciel. Les données ne sont pas touchées.
 
-⚠️ La version dans `package.json` et l'étiquette (`v1.0.1`) doivent correspondre.
+⚠️ Il faut toujours augmenter le numéro de version : les PC installent seulement une version plus récente que la leur.
 
 ## 3. Pour les développeurs
 

@@ -1,32 +1,54 @@
 # Fabrique l'installateur Windows + la version portable et les publie comme mise à jour.
-# Se déclenche quand on crée une version : étiquette v1.0.1, v1.0.2…
+# Se déclenche :
+#  - quand la "version" de package.json change sur la branche main (ex. 1.0.0 -> 1.0.1),
+#  - quand on crée une version vX.Y.Z dans l'onglet Releases,
+#  - ou à la main (onglet Actions -> Publier une version -> Run workflow).
 name: Publier une version
 
 on:
   push:
+    branches: [main]
+    paths: ['package.json']
     tags: ['v*']
   workflow_dispatch:
 
 permissions:
   contents: write
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
   windows:
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Version à publier
+        id: v
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          # Sur la branche main : on ne refait pas une version déjà publiée
+          if [ "$GITHUB_REF_TYPE" != "tag" ] && gh release view "v$VERSION" --json assets -q '.assets[].name' 2>/dev/null | grep -q Installation; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "La version v$VERSION est déjà publiée."
+          fi
       - name: Fabriquer les fichiers Windows
+        if: steps.v.outputs.skip != 'true'
         run: bash tools/build-windows.sh
       - name: Publier sur la page Releases
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        if: steps.v.outputs.skip != 'true'
         run: |
-          TAG="${GITHUB_REF_NAME}"
+          TAG="${{ steps.v.outputs.tag }}"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/* --clobber
           else
-            gh release create "$TAG" dist/* --title "SikaGest ${TAG#v}" --notes "Nouvelle version de SikaGest."
+            gh release create "$TAG" dist/* --target "$GITHUB_SHA" --title "SikaGest ${TAG#v}" \
+              --notes "**SikaGest-Installation** : à installer sur le PC (fonctionne sans Internet, mises à jour automatiques). **SikaGest-Portable** : à décompresser sur une clé USB, puis lancer SikaGest.exe."
           fi
