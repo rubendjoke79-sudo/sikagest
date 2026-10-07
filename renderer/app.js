@@ -13,7 +13,7 @@ const API = {
   },
 };
 
-const S = { user: null, settings: {}, info: { version: '1.0.0', portable: false, vendor: {} }, update: null, lowStock: 0, license: null };
+const S = { user: null, settings: {}, info: { version: '1.0.0', portable: false, vendor: {} }, update: null, lowStock: 0, license: null, backup: null, backupSnooze: false };
 
 // ---------- Utilitaires ----------
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -171,6 +171,7 @@ function renderShell() {
       <header class="topbar"><h1 id="page-title"></h1><span class="crumb" id="page-crumb"></span><div class="spacer"></div>
         <span id="update-slot"></span><div id="page-actions" class="toolbar" style="margin:0"></div></header>
       <div id="lic-banner"></div>
+      <div id="bk-banner"></div>
       <section class="content" id="content"></section>
     </main>
   </div>`;
@@ -198,8 +199,10 @@ async function route() {
   try { S.license = await API.call('license.status'); } catch (e) { S.license = null; }
   if (window.sika) { try { S.info = await window.sika.info(); } catch (e) { /* rien */ } }
   $('#modal-root').innerHTML = '';
+  if (window.sika && window.sika.backupStatus) { try { S.backup = await window.sika.backupStatus(); } catch (e) { S.backup = null; } }
   renderShell();
   renderLicenseBanner();
+  renderBackupBanner();
   const c = $('#content');
   c.innerHTML = '';
   c.style.padding = id === 'pos' ? '16px 20px 20px' : '';
@@ -234,6 +237,38 @@ function renderLicenseBanner() {
   }
   el.innerHTML = html;
 }
+// ---------- Sauvegardes : rappel et alertes ----------
+function backupAgo(iso) {
+  if (!iso) return 'jamais';
+  const d = Math.floor((Date.now() - new Date(iso)) / 86400000);
+  if (d <= 0) return `aujourd'hui à ${new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
+  return d === 1 ? 'hier' : `il y a ${fdays(d)}`;
+}
+async function exportBackup() {
+  if (!window.sika) return toast('Disponible dans le logiciel installé', 'err');
+  const r = await window.sika.backupExport();
+  if (r.ok) { toast('Sauvegarde créée et vérifiée. Gardez ce support hors de la boutique.', 'ok'); S.backupSnooze = false; route(); }
+  else if (r.error) toast(r.error, 'err');
+}
+function renderBackupBanner() {
+  const el = $('#bk-banner');
+  const b = S.backup;
+  if (!el || !b) return;
+  let html = '';
+  if (!b.dbHealthy) {
+    html = `<div class="lic-bar bad">${icon('alert')}<span><b>Un problème a été détecté dans vos données.</b> Les sauvegardes automatiques sont arrêtées pour protéger les bonnes copies. Contactez le support SikaGest.</span></div>`;
+  } else if (b.lastError) {
+    html = `<div class="lic-bar bad">${icon('alert')}<span><b>La sauvegarde automatique a échoué</b> (${esc(b.lastError)}). Faites une copie sur une clé USB dès maintenant.</span><button class="btn sm primary" data-bk-exp>Créer une sauvegarde</button></div>`;
+  } else if (isAdmin() && !S.backupSnooze && b.daysSinceExternal >= 7) {
+    html = `<div class="lic-bar warn">${icon('alert')}<span>Dernière copie sur clé USB : <b>${b.lastExternal ? backupAgo(b.lastExternal) : 'jamais'}</b>. Si l'ordinateur tombe en panne ou est volé, une copie hors du PC est le seul moyen de retrouver vos ventes.</span><button class="btn sm primary" data-bk-exp>Sauvegarder maintenant</button><button class="btn sm ghost" data-bk-later>Plus tard</button></div>`;
+  }
+  el.innerHTML = html;
+  const exp = $('[data-bk-exp]', el);
+  if (exp) exp.addEventListener('click', exportBackup);
+  const later = $('[data-bk-later]', el);
+  if (later) later.addEventListener('click', () => { S.backupSnooze = true; el.innerHTML = ''; });
+}
+
 function licenseModal(message) {
   const wa = waUrl(licenseRequestText());
   modal({

@@ -3,7 +3,8 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { createStore, AppError } = require('./db');
+const { createStore, checkFile, AppError } = require('./db');
+const { createBackups } = require('./backup');
 const updater = require('./updater');
 const register = require('./register');
 
@@ -20,6 +21,7 @@ const DB_FILE = path.join(DATA_DIR, 'sikagest.db');
 
 let store;
 let win;
+let backups;
 
 if (!app.requestSingleInstanceLock()) app.quit();
 app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
@@ -58,40 +60,56 @@ app.whenReady().then(() => {
       filters: [{ name: 'Sauvegarde SikaGest', extensions: ['sikagest'] }],
     });
     if (res.canceled || !res.filePath) return { ok: false };
-    store.checkpoint();
-    fs.copyFileSync(DB_FILE, res.filePath);
+    try { backups.exportTo(res.filePath); }
+    catch (e) { return { ok: false, error: `La sauvegarde n'a pas pu être créée : ${/ENOSPC/.test(e.code || e.message) ? 'le support est plein' : e.message}` }; }
     return { ok: true, path: res.filePath };
   });
+  ipcMain.handle('backup.status', () => backups.status());
+  ipcMain.handle('backup.openAutoDir', () => { fs.mkdirSync(backups.dir, { recursive: true }); return shell.openPath(backups.dir); });
   ipcMain.handle('backup.import', async () => {
     const res = await dialog.showOpenDialog(win, {
-      title: 'Restaurer une sauvegarde', properties: ['openFile'],
+      title: 'Restaurer une sauvegarde', properties: ['openFile'], defaultPath: backups.dir,
       filters: [{ name: 'Sauvegarde SikaGest', extensions: ['sikagest', 'db'] }],
     });
     if (res.canceled || !res.filePaths[0]) return { ok: false };
+    // 1. Vérifier le fichier choisi (sur une copie, pour ne jamais toucher l'original)
+    const candidate = DB_FILE + '.a-restaurer';
+    try { fs.copyFileSync(res.filePaths[0], candidate); } catch (e) { return { ok: false, error: `Fichier illisible : ${e.message}` }; }
+    const chk = checkFile(candidate, storeOpts.nativeBinding);
+    if (!chk.ok) { try { fs.unlinkSync(candidate); } catch (e) { /* rien */ } return { ok: false, error: `Restauration impossible : ${chk.error}. Vos données actuelles n'ont pas été modifiées.` }; }
     const confirm = await dialog.showMessageBox(win, {
-      type: 'warning', buttons: ['Annuler', 'Restaurer'], defaultId: 0, cancelId: 0,
-      title: 'Restaurer', message: 'Toutes les données actuelles seront remplacées par celles de la sauvegarde. Continuer ?',
+      type: 'warning', buttons: ['Annuler', 'Restaurer'], defaultId: 0, cancelId: 0, title: 'Restaurer',
+      message: 'Toutes les données actuelles seront remplacées par celles de la sauvegarde. Continuer ?',
+      detail: `Sauvegarde vérifiée : ${chk.sales} vente(s), ${chk.products} produit(s).\nUne copie de vos données actuelles est gardée dans les sauvegardes automatiques.`,
     });
-    if (confirm.response !== 1) return { ok: false };
+    if (confirm.response !== 1) { try { fs.unlinkSync(candidate); } catch (e) { /* rien */ } return { ok: false }; }
+    // 2. Garder une copie des données actuelles
+    backups.run('avant-restauration');
     store.checkpoint();
-    fs.copyFileSync(DB_FILE, DB_FILE + '.avant-restauration');
+    const previous = DB_FILE + '.avant-restauration';
+    fs.copyFileSync(DB_FILE, previous);
+    // 3. Remplacer, puis revenir en arrière si la base ne s'ouvre pas
     store.close();
     for (const ext of ['-wal', '-shm']) { try { fs.unlinkSync(DB_FILE + ext); } catch (e) { /* absent */ } }
-    fs.copyFileSync(res.filePaths[0], DB_FILE);
-    store = createStore(DB_FILE, storeOpts);
+    try {
+      fs.copyFileSync(candidate, DB_FILE);
+      store = createStore(DB_FILE, storeOpts);
+      store.call('settings.get');
+    } catch (e) {
+      try { store && store.close(); } catch (x) { /* rien */ }
+      for (const ext of ['-wal', '-shm']) { try { fs.unlinkSync(DB_FILE + ext); } catch (x) { /* absent */ } }
+      fs.copyFileSync(previous, DB_FILE);
+      store = createStore(DB_FILE, storeOpts);
+      return { ok: false, error: `La restauration a échoué (${e.message}). Vos données précédentes ont été remises en place.` };
+    } finally {
+      try { fs.unlinkSync(candidate); } catch (e) { /* rien */ }
+    }
     return { ok: true };
   });
 
-  // Sauvegarde automatique quotidienne (garde les 10 dernières)
-  try {
-    const dir = path.join(DATA_DIR, 'sauvegardes-auto');
-    fs.mkdirSync(dir, { recursive: true });
-    const today = new Date().toISOString().slice(0, 10);
-    const target = path.join(dir, `auto-${today}.sikagest`);
-    if (!fs.existsSync(target) && fs.existsSync(DB_FILE)) { store.checkpoint(); fs.copyFileSync(DB_FILE, target); }
-    const files = fs.readdirSync(dir).filter((f) => f.startsWith('auto-')).sort();
-    while (files.length > 10) fs.unlinkSync(path.join(dir, files.shift()));
-  } catch (e) { /* non bloquant */ }
+  // Sauvegardes automatiques : au démarrage, toutes les 3 heures et à la fermeture
+  backups = createBackups({ dataDir: DATA_DIR, getStore: () => store, nativeBinding: storeOpts.nativeBinding });
+  try { backups.start(); } catch (e) { /* non bloquant : l'état signale l'échec */ }
 
   createWindow();
   ensureDesktopShortcut();
@@ -129,4 +147,8 @@ function ensureDesktopShortcut() {
   } catch (e) { /* non bloquant */ }
 }
 
-app.on('window-all-closed', () => { if (store) { store.checkpoint(); store.close(); } app.quit(); });
+app.on('window-all-closed', () => {
+  if (backups) { try { backups.onClose(); } catch (e) { /* rien */ } }
+  if (store) { store.checkpoint(); store.close(); }
+  app.quit();
+});

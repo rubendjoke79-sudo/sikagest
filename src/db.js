@@ -682,9 +682,46 @@ function createStore(file, opts = {}) {
   }
   function close() { try { db.close(); } catch (e) { /* déjà fermé */ } }
   function checkpoint() { try { db.exec('PRAGMA wal_checkpoint(TRUNCATE)'); } catch (e) { /* rien */ } }
+  // Copie cohérente de la base, même pendant l'utilisation (ventes en cours comprises)
+  function snapshot(target) {
+    try { fs.unlinkSync(target); } catch (e) { /* absent */ }
+    db.prepare('VACUUM INTO ?').run(target);
+  }
+  // Contrôle rapide de la base en cours d'utilisation
+  function quickCheck() {
+    try { const r = db.prepare('PRAGMA quick_check').all().map((x) => Object.values(x)[0]); return r.length === 1 && r[0] === 'ok' ? 'ok' : r.slice(0, 3).join(' ; '); }
+    catch (e) { return e.message; }
+  }
   function setVendor(v) { setSetting('vendor_json', JSON.stringify(v || {})); }
   function getVendor() { try { return JSON.parse(setting('vendor_json') || '{}'); } catch (e) { return {}; } }
-  return { call, close, checkpoint, file, AppError, driver: db.__driver || 'node:sqlite', licenseStatus, setVendor, getVendor };
+  return { call, close, checkpoint, snapshot, quickCheck, file, AppError, driver: db.__driver || 'node:sqlite', licenseStatus, setVendor, getVendor };
 }
 
-module.exports = { createStore, AppError };
+// Vérifie qu'un fichier est une base SikaGest lisible et non abîmée.
+// Renvoie { ok: true, sales, products } ou { ok: false, error }.
+const REQUIRED_TABLES = ['settings', 'users', 'products', 'sales', 'purchases'];
+function checkFile(file, nativeBinding) {
+  let db;
+  try {
+    if (!fs.existsSync(file)) return { ok: false, error: 'fichier introuvable' };
+    const head = Buffer.alloc(16);
+    const fd = fs.openSync(file, 'r');
+    try { fs.readSync(fd, head, 0, 16, 0); } finally { fs.closeSync(fd); }
+    if (head.toString('latin1') !== 'SQLite format 3\0') return { ok: false, error: 'ce n\'est pas une sauvegarde SikaGest' };
+    db = openDriver(file, nativeBinding);
+    const res = db.prepare('PRAGMA integrity_check').all().map((x) => Object.values(x)[0]);
+    if (!(res.length === 1 && res[0] === 'ok')) return { ok: false, error: 'fichier abîmé' };
+    const tables = new Set(db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((r) => r.name));
+    const missing = REQUIRED_TABLES.filter((t) => !tables.has(t));
+    if (missing.length) return { ok: false, error: 'ce n\'est pas une sauvegarde SikaGest' };
+    const n = (t) => Number(db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get().n);
+    return { ok: true, sales: n('sales'), products: n('products') };
+  } catch (e) {
+    return { ok: false, error: `fichier illisible (${e.message})` };
+  } finally {
+    if (db) { try { db.close(); } catch (e) { /* rien */ } }
+    for (const ext of ['-wal', '-shm']) { try { fs.unlinkSync(file + ext); } catch (e) { /* absent */ } }
+  }
+}
+
+module.exports = { createStore, checkFile, AppError };

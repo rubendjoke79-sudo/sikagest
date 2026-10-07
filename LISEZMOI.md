@@ -25,7 +25,7 @@ Caisse (POS), ventes et factures, achats, stock, clients et fournisseurs, dépen
 
 Vous pouvez copier l'installateur sur une clé et l'installer sur autant de PC que vous voulez.
 
-Les données sont dans une base SQLite, dans `%APPDATA%\SikaGest` pour la version installée. Une sauvegarde automatique est faite chaque jour (les 10 dernières sont gardées). Pour passer d'un PC à un autre : **Paramètres → Créer une sauvegarde**, puis **Restaurer** sur l'autre PC. Désinstaller le logiciel ne supprime pas les données.
+Les données sont dans une base SQLite, dans `%APPDATA%\SikaGest` pour la version installée. Une copie vérifiée est faite automatiquement toutes les 3 heures pendant l'utilisation, et à la fermeture, dans `sauvegardes-auto`. L'historique couvre 12 mois : les 3 dernières copies, 1 par jour sur 7 jours, 1 par semaine sur 5 semaines et 1 par mois sur 12 mois. Ces copies restent sur le même PC : le logiciel rappelle à l'administrateur de faire une copie sur clé USB chaque semaine, et affiche une alerte si une sauvegarde échoue. Avant une restauration, le fichier est vérifié, et les données actuelles sont remises en place si quelque chose se passe mal. Pour passer d'un PC à un autre : **Paramètres → Créer une sauvegarde**, puis **Restaurer** sur l'autre PC. Désinstaller le logiciel ne supprime pas les données.
 
 ---
 

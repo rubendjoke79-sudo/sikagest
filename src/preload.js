@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld('sika', {
   openDataDir: () => ipcRenderer.invoke('app.openDataDir'),
   backupExport: () => ipcRenderer.invoke('backup.export'),
   backupImport: () => ipcRenderer.invoke('backup.import'),
+  backupStatus: () => ipcRenderer.invoke('backup.status'),
+  openBackupDir: () => ipcRenderer.invoke('backup.openAutoDir'),
   checkUpdates: () => ipcRenderer.invoke('update.check'),
   syncNow: () => ipcRenderer.invoke('register.sync'),
   installUpdate: () => ipcRenderer.invoke('update.install'),

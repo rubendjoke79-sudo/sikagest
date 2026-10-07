@@ -701,8 +701,10 @@ VIEWS.settings = async (c) => {
       ${isAdmin() ? '<div class="full"><button class="btn primary">Enregistrer</button></div>' : '<p class="full" style="color:var(--ink-3)">Seul l\'administrateur peut modifier ces informations.</p>'}</form></div>
     <div style="display:flex;flex-direction:column;gap:16px">
       <div class="card"><div class="card-h"><h3>Sauvegarde des données</h3></div><div class="card-b">
-        <p style="margin-top:0;color:var(--ink-2)">Une sauvegarde automatique est faite chaque jour. Faites aussi une copie régulière sur une clé USB ou un autre support.</p>
-        <div class="toolbar" style="margin:0"><button class="btn" id="b-exp">Créer une sauvegarde…</button>${isAdmin() ? '<button class="btn" id="b-imp">Restaurer…</button>' : ''}<button class="btn ghost" id="b-dir">Ouvrir le dossier des données</button></div>
+        <p style="margin-top:0;color:var(--ink-2)">SikaGest fait une copie vérifiée de vos données toutes les 3 heures et à la fermeture. Il garde l'historique sur 12 mois.</p>
+        <div id="b-status" class="bk-status"></div>
+        <p style="color:var(--ink-2)"><b>Important :</b> ces copies restent sur cet ordinateur. Faites aussi une copie <b>chaque semaine</b> sur une clé USB, gardée hors de la boutique.</p>
+        <div class="toolbar" style="margin:0"><button class="btn primary" id="b-exp">Créer une sauvegarde…</button>${isAdmin() ? '<button class="btn" id="b-imp">Restaurer…</button>' : ''}<button class="btn ghost" id="b-auto">Voir les copies automatiques</button><button class="btn ghost" id="b-dir">Ouvrir le dossier des données</button></div>
         <p style="color:var(--ink-3);font-size:12.5px;margin-bottom:0" id="b-path"></p></div></div>
       <div class="card"><div class="card-h"><h3>Mises à jour</h3></div><div class="card-b">
         <p style="margin-top:0">Version installée : <b>${esc(S.info.version)}</b>${S.info.portable ? ' (portable)' : ''}<br>
@@ -718,8 +720,14 @@ VIEWS.settings = async (c) => {
   $('#pw').addEventListener('submit', async (e) => { e.preventDefault(); await run(() => API.call('auth.changePassword', formData(e.target)), 'Mot de passe modifié'); e.target.reset(); });
   const desktop = !!window.sika;
   if (desktop) $('#b-path').textContent = `Emplacement : ${S.info.dataDir}`;
-  $('#b-exp').addEventListener('click', async () => { if (!desktop) return toast('Disponible dans le logiciel installé', 'err'); const r = await window.sika.backupExport(); if (r.ok) toast('Sauvegarde créée', 'ok'); });
-  if ($('#b-imp')) $('#b-imp').addEventListener('click', async () => { if (!desktop) return toast('Disponible dans le logiciel installé', 'err'); const r = await window.sika.backupImport(); if (r.ok) { toast('Données restaurées. Reconnectez-vous.', 'ok'); S.user = null; boot(); } });
+  const b = S.backup;
+  $('#b-status').innerHTML = !desktop || !b ? '<div class="bk-row"><span>Sauvegardes</span><b>disponibles dans le logiciel installé</b></div>' : `
+    <div class="bk-row"><span>Dernière copie automatique</span><b class="${b.lastError ? 'bad' : 'ok'}">${b.lastError ? 'échec : ' + esc(b.lastError) : esc(backupAgo(b.lastOk))}</b></div>
+    <div class="bk-row"><span>Copies gardées sur ce PC</span><b>${b.count}${b.oldest ? ` (depuis le ${new Date(b.oldest).toLocaleDateString('fr-FR')})` : ''}</b></div>
+    <div class="bk-row"><span>Dernière copie sur clé USB</span><b class="${b.daysSinceExternal >= 7 ? 'warn' : 'ok'}">${esc(backupAgo(b.lastExternal))}</b></div>`;
+  $('#b-exp').addEventListener('click', exportBackup);
+  $('#b-auto').addEventListener('click', () => desktop ? window.sika.openBackupDir() : toast('Disponible dans le logiciel installé', 'err'));
+  if ($('#b-imp')) $('#b-imp').addEventListener('click', async () => { if (!desktop) return toast('Disponible dans le logiciel installé', 'err'); const r = await window.sika.backupImport(); if (r.ok) { toast('Données restaurées. Reconnectez-vous.', 'ok'); S.user = null; boot(); } else if (r.error) toast(r.error, 'err'); });
   $('#b-dir').addEventListener('click', () => desktop ? window.sika.openDataDir() : toast('Disponible dans le logiciel installé', 'err'));
   $('#u-chk').addEventListener('click', async () => {
     if (!desktop) return toast('Disponible dans le logiciel installé', 'err');
